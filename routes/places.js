@@ -219,4 +219,104 @@ router.get('/api/place/:id', async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/distance:
+ *   get:
+ *     summary: Calculate the distance between two places
+ *     tags:
+ *       - "Places"
+ *     parameters:
+ *       - name: from
+ *         in: query
+ *         required: true
+ *         description: Identifier of the origin place (ID or zipcode)
+ *         schema:
+ *           type: string
+ *       - name: to
+ *         in: query
+ *         required: true
+ *         description: Identifier of the destination place (ID or zipcode)
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: The distance information in kilometers
+ *       400:
+ *         description: Missing parameters or invalid coordinates
+ *       404:
+ *         description: One or both places not found
+ *       500:
+ *         description: Internal Server Error
+ */
+router.get('/api/distance', async (req, res) => {
+  const { from, to } = req.query;
+
+  if (!from || !to) {
+      return res.status(400).json({ message: 'Query parameters "from" and "to" are required.' });
+  }
+
+  const resolvePlace = async (identifier) => {
+      let place = null;
+
+      if (/^\d+$/.test(identifier)) {
+          place = await Place.findByPk(identifier);
+      }
+
+      if (!place) {
+          place = await Place.findOne({ where: { zipcode: identifier } });
+      }
+
+      return place;
+  };
+
+  const toRadians = (value) => (Number(value) * Math.PI) / 180;
+
+  try {
+      const [fromPlace, toPlace] = await Promise.all([resolvePlace(from), resolvePlace(to)]);
+
+      if (!fromPlace || !toPlace) {
+          return res.status(404).json({ message: 'One or both places could not be found.' });
+      }
+
+      if (fromPlace.lat == null || fromPlace.lon == null || toPlace.lat == null || toPlace.lon == null) {
+          return res.status(400).json({ message: 'Both places must have latitude and longitude values.' });
+      }
+
+      const lat1 = Number(fromPlace.lat);
+      const lon1 = Number(fromPlace.lon);
+      const lat2 = Number(toPlace.lat);
+      const lon2 = Number(toPlace.lon);
+
+      const earthRadiusKm = 6371;
+      const dLat = toRadians(lat2 - lat1);
+      const dLon = toRadians(lon2 - lon1);
+
+      const a =
+          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+          Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
+          Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const distance = earthRadiusKm * c;
+
+      res.json({
+          from: {
+              id: fromPlace.id,
+              zipcode: fromPlace.zipcode,
+              name: fromPlace.name
+          },
+          to: {
+              id: toPlace.id,
+              zipcode: toPlace.zipcode,
+              name: toPlace.name
+          },
+          distanceKm: Number(distance.toFixed(2))
+      });
+  } catch (error) {
+      console.error(error);
+      res.status(500).send('Internal Server Error');
+  }
+});
+
 module.exports = router;

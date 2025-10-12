@@ -61,6 +61,22 @@ GET /api/place/{id}
   - **404**: Ort nicht gefunden.
   - **500**: Interner Serverfehler.
 
+### 5. Calculate Distance Between Two Places
+
+```
+GET /api/distance?from={identifier}&to={identifier}
+```
+
+- **Zusammenfassung**: Berechnet die Distanz zwischen zwei Orten.
+- **Parameter**:
+  - `from` (Query-Parameter, erforderlich): ID oder Postleitzahl des Startortes.
+  - `to` (Query-Parameter, erforderlich): ID oder Postleitzahl des Zielortes.
+- **Antworten**:
+  - **200**: Die Distanz in Kilometern sowie Informationen zu den beiden Orten.
+  - **400**: Fehlende Parameter oder unvollständige Koordinaten.
+  - **404**: Einer oder beide Orte konnten nicht gefunden werden.
+  - **500**: Interner Serverfehler.
+
 ## Verwendung
 
 Stelle sicher, dass der Server läuft und die Umgebungsvariablen korrekt konfiguriert sind. Du kannst diese Endpunkte mit einem Tool wie Postman oder direkt über den Browser aufrufen (sofern es sich um GET-Anfragen handelt).
