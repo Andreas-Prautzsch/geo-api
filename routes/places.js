@@ -1,4 +1,5 @@
 const express = require('express');
+const { URL } = require('url');
 const { Op, Sequelize } = require('sequelize');
 const Place = require('../models/place'); // Assuming you have a Place model defined
 require('dotenv').config(); // Load environment variables from .env file
@@ -6,6 +7,145 @@ require('dotenv').config(); // Load environment variables from .env file
 const router = express.Router();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
+
+const fetchWithTimeout = async (resource, options = {}) => {
+  const { timeout = 15000, ...rest } = options;
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    return await fetch(resource, { ...rest, signal: controller.signal });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+};
+
+const geocodeAddress = async (address) => {
+  const trimmed = address?.trim();
+
+  if (!trimmed) {
+    return null;
+  }
+
+  const geocoderBaseUrl = process.env.GEOCODER_BASE_URL || 'http://photon:2322';
+  const url = new URL('/api', geocoderBaseUrl);
+  url.searchParams.set('q', trimmed);
+  url.searchParams.set('limit', '1');
+  url.searchParams.set('lang', 'de');
+
+  try {
+    const response = await fetchWithTimeout(url, { timeout: 10_000 });
+
+    if (!response.ok) {
+      const body = await response.text();
+      console.error(`Geocoder backend error: ${response.status} - ${body}`);
+      return null;
+    }
+
+    const data = await response.json();
+    const feature = data?.features?.[0];
+
+    if (!feature?.geometry?.coordinates) {
+      return null;
+    }
+
+    const [rawLon, rawLat] = feature.geometry.coordinates;
+    const lat = Number(rawLat);
+    const lon = Number(rawLon);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return null;
+    }
+
+    return {
+      type: 'geocoded',
+      label: feature.properties?.label || trimmed,
+      lat,
+      lon,
+      details: {
+        street: feature.properties?.street,
+        housenumber: feature.properties?.housenumber,
+        postcode: feature.properties?.postcode,
+        city: feature.properties?.city || feature.properties?.locality,
+        state: feature.properties?.state,
+        country: feature.properties?.country,
+      },
+      raw: feature,
+    };
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.error('Geocoder backend timeout', error);
+      return null;
+    }
+
+    console.error('Geocoder request failed', error);
+    return null;
+  }
+};
+
+const resolveLocation = async (identifier) => {
+  const cleaned = identifier?.trim();
+
+  if (!cleaned) {
+    return null;
+  }
+
+  let place = null;
+
+  if (/^\d+$/.test(cleaned)) {
+    place = await Place.findByPk(cleaned);
+  }
+
+  if (!place) {
+    place = await Place.findOne({ where: { zipcode: cleaned } });
+  }
+
+  if (place) {
+    const lat = Number(place.lat);
+    const lon = Number(place.lon);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return null;
+    }
+
+    return {
+      type: 'place',
+      id: place.id,
+      zipcode: place.zipcode,
+      name: place.name,
+      lat,
+      lon,
+    };
+  }
+
+  return geocodeAddress(cleaned);
+};
+
+const formatLocationResponse = (location, fallbackLabel) => {
+  if (!location) {
+    return null;
+  }
+
+  if (location.type === 'place') {
+    return {
+      type: 'database',
+      id: location.id,
+      zipcode: location.zipcode,
+      name: location.name,
+      label: `${location.zipcode || ''} ${location.name || ''}`.trim() || fallbackLabel,
+      lat: location.lat,
+      lon: location.lon,
+    };
+  }
+
+  return {
+    type: 'geocoded',
+    label: location.label || fallbackLabel,
+    lat: location.lat,
+    lon: location.lon,
+    details: location.details,
+  };
+};
 
 /**
  * @swagger
@@ -230,13 +370,13 @@ router.get('/api/place/:id', async (req, res) => {
  *       - name: from
  *         in: query
  *         required: true
- *         description: Identifier of the origin place (ID or zipcode)
+ *         description: Identifier of the origin place (ID, zipcode, or full address)
  *         schema:
  *           type: string
  *       - name: to
  *         in: query
  *         required: true
- *         description: Identifier of the destination place (ID or zipcode)
+ *         description: Identifier of the destination place (ID, zipcode, or full address)
  *         schema:
  *           type: string
  *     responses:
@@ -256,37 +396,20 @@ router.get('/api/distance', async (req, res) => {
       return res.status(400).json({ message: 'Query parameters "from" and "to" are required.' });
   }
 
-  const resolvePlace = async (identifier) => {
-      let place = null;
-
-      if (/^\d+$/.test(identifier)) {
-          place = await Place.findByPk(identifier);
-      }
-
-      if (!place) {
-          place = await Place.findOne({ where: { zipcode: identifier } });
-      }
-
-      return place;
-  };
-
-  const toRadians = (value) => (Number(value) * Math.PI) / 180;
+  const toRadians = (value) => (value * Math.PI) / 180;
 
   try {
-      const [fromPlace, toPlace] = await Promise.all([resolvePlace(from), resolvePlace(to)]);
+      const [fromPlace, toPlace] = await Promise.all([
+        resolveLocation(from),
+        resolveLocation(to),
+      ]);
 
       if (!fromPlace || !toPlace) {
           return res.status(404).json({ message: 'One or both places could not be found.' });
       }
 
-      if (fromPlace.lat == null || fromPlace.lon == null || toPlace.lat == null || toPlace.lon == null) {
-          return res.status(400).json({ message: 'Both places must have latitude and longitude values.' });
-      }
-
-      const lat1 = Number(fromPlace.lat);
-      const lon1 = Number(fromPlace.lon);
-      const lat2 = Number(toPlace.lat);
-      const lon2 = Number(toPlace.lon);
+      const { lat: lat1, lon: lon1 } = fromPlace;
+      const { lat: lat2, lon: lon2 } = toPlace;
 
       const earthRadiusKm = 6371;
       const dLat = toRadians(lat2 - lat1);
@@ -301,21 +424,117 @@ router.get('/api/distance', async (req, res) => {
       const distance = earthRadiusKm * c;
 
       res.json({
-          from: {
-              id: fromPlace.id,
-              zipcode: fromPlace.zipcode,
-              name: fromPlace.name
-          },
-          to: {
-              id: toPlace.id,
-              zipcode: toPlace.zipcode,
-              name: toPlace.name
-          },
+          from: formatLocationResponse(fromPlace, from),
+          to: formatLocationResponse(toPlace, to),
           distanceKm: Number(distance.toFixed(2))
       });
   } catch (error) {
       console.error(error);
       res.status(500).send('Internal Server Error');
+  }
+});
+
+/**
+ * @swagger
+ * /api/driving-distance:
+ *   get:
+ *     summary: Calculate the driving distance between two places
+ *     description: Uses an OSRM backend (car profile) to compute the driving route between two points.
+ *     tags:
+ *       - "Places"
+ *     parameters:
+ *       - name: from
+ *         in: query
+ *         required: true
+ *         description: Identifier of the origin place (ID, zipcode, or full address)
+ *         schema:
+ *           type: string
+ *       - name: to
+ *         in: query
+ *         required: true
+ *         description: Identifier of the destination place (ID, zipcode, or full address)
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: The driving distance information in meters and kilometers
+ *       400:
+ *         description: Missing parameters or invalid coordinates
+ *       404:
+ *         description: One or both places not found
+ *       502:
+ *         description: Routing backend error
+ *       500:
+ *         description: Internal Server Error
+ */
+router.get('/api/driving-distance', async (req, res) => {
+  const { from, to } = req.query;
+
+  if (!from || !to) {
+    return res.status(400).json({ message: 'Query parameters "from" and "to" are required.' });
+  }
+
+  try {
+    const [fromPlace, toPlace] = await Promise.all([
+      resolveLocation(from),
+      resolveLocation(to),
+    ]);
+
+    if (!fromPlace || !toPlace) {
+      return res.status(404).json({ message: 'One or both places could not be found.' });
+    }
+
+    const osrmBaseUrl = process.env.OSRM_BASE_URL || 'http://osrm:5000';
+    const coordinates = `${fromPlace.lon},${fromPlace.lat};${toPlace.lon},${toPlace.lat}`;
+    const url = new URL(`/route/v1/driving/${coordinates}`, osrmBaseUrl);
+    url.searchParams.set('overview', 'false');
+    url.searchParams.set('alternatives', 'false');
+    url.searchParams.set('steps', 'false');
+    url.searchParams.set('geometries', 'geojson');
+
+    const response = await fetchWithTimeout(url, { timeout: 15_000 });
+
+    if (!response.ok) {
+      const body = await response.text();
+      console.error(`OSRM backend error: ${response.status} - ${body}`);
+      return res.status(502).json({ message: 'Routing backend error', status: response.status });
+    }
+
+    const payload = await response.json();
+
+    if (!payload.routes || payload.routes.length === 0) {
+      return res.status(502).json({ message: 'Routing backend did not return a route.' });
+    }
+
+    const route = payload.routes[0];
+    const distanceKm = route.distance / 1000;
+    const durationMinutes = route.duration / 60;
+
+    res.json({
+      from: formatLocationResponse(fromPlace, from),
+      to: formatLocationResponse(toPlace, to),
+      distance: {
+        meters: Math.round(route.distance),
+        kilometers: Number(distanceKm.toFixed(3)),
+      },
+      duration: {
+        seconds: Math.round(route.duration),
+        minutes: Number(durationMinutes.toFixed(1)),
+      },
+      geometry: route.geometry,
+      osrm: {
+        code: payload.code,
+        waypoints: payload.waypoints,
+      },
+    });
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      console.error('OSRM backend timeout', error);
+      return res.status(502).json({ message: 'Routing backend timeout' });
+    }
+
+    console.error(error);
+    res.status(500).send('Internal Server Error');
   }
 });
 

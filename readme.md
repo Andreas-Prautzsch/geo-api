@@ -67,14 +67,31 @@ GET /api/place/{id}
 GET /api/distance?from={identifier}&to={identifier}
 ```
 
-- **Zusammenfassung**: Berechnet die Distanz zwischen zwei Orten.
+- **Zusammenfassung**: Berechnet die Distanz zwischen zwei Orten (Luftlinie).
 - **Parameter**:
-  - `from` (Query-Parameter, erforderlich): ID oder Postleitzahl des Startortes.
-  - `to` (Query-Parameter, erforderlich): ID oder Postleitzahl des Zielortes.
+  - `from` (Query-Parameter, erforderlich): ID, Postleitzahl **oder vollständige Adresse** des Startortes.
+  - `to` (Query-Parameter, erforderlich): ID, Postleitzahl **oder vollständige Adresse** des Zielortes.
 - **Antworten**:
-  - **200**: Die Distanz in Kilometern sowie Informationen zu den beiden Orten.
+  - **200**: Die Distanz in Kilometern sowie Informationen zu den beiden Orten bzw. Adressen.
   - **400**: Fehlende Parameter oder unvollständige Koordinaten.
   - **404**: Einer oder beide Orte konnten nicht gefunden werden.
+  - **500**: Interner Serverfehler.
+
+### 6. Calculate Driving Distance Between Two Places (OSRM)
+
+```
+GET /api/driving-distance?from={identifier}&to={identifier}
+```
+
+- **Zusammenfassung**: Berechnet die Fahrstrecke anhand eines lokalen OSRM-Backends. Unterstützt IDs, Postleitzahlen **und vollständige Adressangaben**.
+- **Parameter**:
+  - `from` (Query-Parameter, erforderlich): ID, Postleitzahl oder vollständige Adresse des Startortes (z. B. `Musterstraße 1, 12345 Berlin`).
+  - `to` (Query-Parameter, erforderlich): ID, Postleitzahl oder vollständige Adresse des Zielortes.
+- **Antworten**:
+  - **200**: Fahrstrecke in Metern und Kilometern inkl. Fahrzeit und OSRM-Metadaten.
+  - **400**: Fehlende Parameter oder unvollständige Koordinaten.
+  - **404**: Einer oder beide Orte konnten nicht gefunden werden.
+  - **502**: Fehler oder Timeout des Routing-Backends.
   - **500**: Interner Serverfehler.
 
 ## Verwendung
@@ -84,3 +101,28 @@ Stelle sicher, dass der Server läuft und die Umgebungsvariablen korrekt konfigu
 ## Swagger-Dokumentation
 
 Die Swagger-Dokumentation ist verfügbar unter: `http://localhost:3000/api-docs` (oder der entsprechende Port, den du in deiner Anwendung verwendest).
+
+## Fahrstrecke mit OSRM vorbereiten
+
+Die Vorbereitung der OSRM-Daten geschieht jetzt automatisch beim Start des `osrm`-Services (z. B. via Coolify oder `docker compose up`). Der Container lädt die `germany-latest.osm.pbf`, erzeugt die nötigen `.osrm`-Dateien und startet anschließend `osrm-routed`. Du kannst das Verhalten über folgende Umgebungsvariablen anpassen:
+
+- `OSRM_PBF_URL` (Default: `https://download.geofabrik.de/europe/germany-latest.osm.pbf`)
+- `OSRM_PBF_FILE` (Default: `germany-latest.osm.pbf`)
+- `OSRM_ALGORITHM` (Default: `mld`)
+- `OSRM_PROFILE` (Default: `/opt/car.lua`)
+
+Die Daten werden unter `data/osrm/` abgelegt. Existieren sie bereits, werden sie beim nächsten Deploy nicht erneut heruntergeladen oder vorbereitet.  
+Der API-Server greift über `OSRM_BASE_URL` (Default: `http://osrm:5000`) auf diesen Dienst zu.
+
+## Adress-Geocoding für exakte Fahrstrecken
+
+Der Photon-Geocoder wird ebenfalls automatisiert verwaltet. Beim ersten Start des `photon`-Services werden die OSM-Daten heruntergeladen und ein Index aufgebaut. vorhandene Daten werden erkannt und nicht erneut importiert. Anpassbare Variablen:
+
+- `PHOTON_PBF_URL` (Default: `https://download.geofabrik.de/europe/germany-latest.osm.pbf`)
+- `PHOTON_PBF_FILE` (Default: `germany-latest.osm.pbf`)
+- `PHOTON_FORCE_REIMPORT` (Default: `false`, bei `true` wird der Index neu aufgebaut)
+- `PHOTON_JAVA_OPTS` (Optionale JVM-Parameter, z. B. Speicherlimits)
+
+Photon persistiert seine Daten in `data/photon/`. Die API verwendet `GEOCODER_BASE_URL` (Default: `http://photon:2322`).
+
+> Tipp: Coolify setzt die Services automatisch in Gang. Stelle sicher, dass das Volume-Verzeichnis (`data/`) als persistent mount konfiguriert ist, damit Downloads und Indizes nicht bei jedem Deploy verloren gehen.

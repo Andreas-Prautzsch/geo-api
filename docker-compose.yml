@@ -11,6 +11,34 @@ services:
       - 5432:5432
     networks:
       - backend-network
+  osrm:
+    build:
+      context: ./docker/osrm
+    environment:
+      - OSRM_PBF_URL=${OSRM_PBF_URL:-https://download.geofabrik.de/europe/germany-latest.osm.pbf}
+      - OSRM_PBF_FILE=${OSRM_PBF_FILE:-germany-latest.osm.pbf}
+      - OSRM_ALGORITHM=${OSRM_ALGORITHM:-mld}
+      - OSRM_PROFILE=${OSRM_PROFILE:-/opt/car.lua}
+    volumes:
+      - ./data/osrm:/data
+    ports:
+      - 5000:5000
+    networks:
+      - backend-network
+  photon:
+    build:
+      context: ./docker/photon
+    environment:
+      - PHOTON_PBF_URL=${PHOTON_PBF_URL:-https://download.geofabrik.de/europe/germany-latest.osm.pbf}
+      - PHOTON_PBF_FILE=${PHOTON_PBF_FILE:-germany-latest.osm.pbf}
+      - PHOTON_FORCE_REIMPORT=${PHOTON_FORCE_REIMPORT:-false}
+      - JAVA_OPTS=${PHOTON_JAVA_OPTS:-}
+    volumes:
+      - ./data/photon:/data
+    ports:
+      - 2322:2322
+    networks:
+      - backend-network
 
 volumes:
   pgdata:
