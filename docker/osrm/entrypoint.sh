@@ -59,7 +59,8 @@ acquire_lock() {
 download_file() {
   src="$1"
   dest="$2"
-  curl --retry 5 --retry-delay 30 --retry-connrefused -fSL --continue-at - "${src}" -o "${dest}"
+  curl  -fSL "${src}" -o "${dest}"
+  # curl --retry 5 --retry-delay 30 --retry-connrefused -fSL --continue-at - "${src}" -o "${dest}"
   return $?
 }
 
