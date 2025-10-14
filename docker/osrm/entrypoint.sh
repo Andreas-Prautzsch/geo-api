@@ -94,7 +94,7 @@ ensure_pbf() {
     else
       dest="${PBF_PATH}"
     fi
-    tmp_file="${dest}.tmp"
+    tmp_file="${dest}.downloading.$$"
 
     log "Downloading ${PBF_URL} into ${dest}..."
     if download_file "${PBF_URL}" "${tmp_file}"; then
