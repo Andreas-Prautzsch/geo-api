@@ -96,9 +96,50 @@ ensure_prebuilt() {
   return 1
 }
 
+download_from_google_drive() {
+  url="$1"
+  dest="$2"
+  file_id=""
+
+  file_id=$(echo "$url" | sed -n 's/.*id=\([^&]*\).*/\1/p')
+  if [ -z "$file_id" ]; then
+    file_id=$(echo "$url" | sed -n 's#.*file/d/\([^/]*\).*#\1#p')
+  fi
+
+  if [ -z "$file_id" ]; then
+    log "Could not extract Google Drive file id from ${url}"
+    return 1
+  fi
+
+  cookie_file="$(mktemp)"
+  html_file="$(mktemp)"
+
+  curl -s -L -c "$cookie_file" "https://drive.google.com/uc?export=download&id=${file_id}" -o "$html_file"
+  confirm=$(grep -o 'confirm=[^&]*' "$html_file" | sed 's/confirm=//' | head -n 1)
+
+  if [ -z "$confirm" ]; then
+    curl -s -L -b "$cookie_file" "https://drive.google.com/uc?export=download&id=${file_id}" -o "$dest"
+  else
+    curl -s -L -b "$cookie_file" "https://drive.google.com/uc?export=download&confirm=${confirm}&id=${file_id}" -o "$dest"
+  fi
+
+  rm -f "$cookie_file" "$html_file"
+
+  if [ ! -s "$dest" ]; then
+    log "Downloaded file from Google Drive appears to be empty."
+    return 1
+  fi
+
+  return 0
+}
+
 download_file() {
   src="$1"
   dest="$2"
+  if echo "$src" | grep -q 'drive.google.com'; then
+    download_from_google_drive "$src" "$dest"
+    return $?
+  fi
   curl --retry 5 --retry-delay 30 --retry-connrefused -fSL --continue-at - "${src}" -o "${dest}"
   return $?
 }
