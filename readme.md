@@ -130,6 +130,14 @@ Auch für Photon werden beim Booten der API Health-Checks ausgeführt und mit `[
 
 > Tipp: Coolify setzt die Services automatisch in Gang. Stelle sicher, dass das Volume-Verzeichnis (`data/`) als persistent mount konfiguriert ist, damit Downloads und Indizes nicht bei jedem Deploy verloren gehen.
 
+## Komplettes Deployment mit Docker Compose / Coolify
+
+- `docker-compose.yml` bringt alle Services (`app`, `db`, `osrm`, `photon`) in einem Stack zusammen.
+- Nutze in Coolify den „Docker Compose / Stack“-Modus oder lokal `docker compose up --build`.
+- Hinterlege persistente Volumes für `./data/osrm` und `./data/photon`, damit PBF-Dateien und Indizes erhalten bleiben.
+- Die `.env` liefert Datenbank-Credentials; der App-Service greift intern per `http://osrm:5000` und `http://photon:2322` auf Routing & Geocoding zu.
+- Während des Starts protokolliert der App-Container die Erreichbarkeit aller Dienste; sobald Photon und OSRM „reachable“ melden, funktionieren Adress-Routen-Abfragen.
+
 ## Schnelltest mit Bruno
 
 Nach dem erfolgreichen Deploy kannst du in Bruno (oder per Browser) folgende URL aufrufen, um sowohl Geocoder als auch OSRM zu prüfen:
