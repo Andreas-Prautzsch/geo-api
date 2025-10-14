@@ -94,7 +94,9 @@ download_with_cache() {
     tmp_file="${dest}.downloading.$$"
     log "Downloading ${url} into ${tmp_file}..."
     if download_file "${url}" "${tmp_file}"; then
-      mv -f "${tmp_file}" "${dest}"
+      if [ "${tmp_file}" != "${dest}" ]; then
+        mv -f "${tmp_file}" "${dest}"
+      fi
       log "Download complete (${dest})."
       release_lock
       return 0
