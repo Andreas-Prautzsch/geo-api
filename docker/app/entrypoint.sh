@@ -31,6 +31,8 @@ run_with_retry() {
   return 1
 }
 
+log "Using DB host ${DB_HOST:-<undefined>}:${DB_PORT:-<undefined>} database ${DB_NAME:-<undefined>}."
+
 if ! command_exists npx; then
   log "npx command not found; exiting."
   exit 1
