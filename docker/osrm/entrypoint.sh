@@ -59,8 +59,7 @@ acquire_lock() {
 download_file() {
   src="$1"
   dest="$2"
-  curl  -fSL "${src}" -o "${dest}"
-  # curl --retry 5 --retry-delay 30 --retry-connrefused -fSL --continue-at - "${src}" -o "${dest}"
+  curl --retry 5 --retry-delay 30 --retry-connrefused -fSL --continue-at - "${src}" -o "${dest}"
   return $?
 }
 
@@ -96,9 +95,11 @@ ensure_pbf() {
     fi
     tmp_file="${dest}.downloading.$$"
 
-    log "Downloading ${PBF_URL} into ${dest}..."
+    log "Downloading ${PBF_URL} into ${dest} (tmp ${tmp_file})..."
     if download_file "${PBF_URL}" "${tmp_file}"; then
-      mv "${tmp_file}" "${dest}"
+      if [ "${tmp_file}" != "${dest}" ]; then
+        mv -f "${tmp_file}" "${dest}"
+      fi
       if [ "${dest}" != "${PBF_PATH}" ]; then
         cp "${dest}" "${PBF_PATH}"
       fi
