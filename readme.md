@@ -130,6 +130,8 @@ Auch für Photon werden beim Booten der API Health-Checks ausgeführt und mit `[
 
 > Tipp: Coolify setzt die Services automatisch in Gang. Stelle sicher, dass das Volume-Verzeichnis (`data/`) als persistent mount konfiguriert ist, damit Downloads und Indizes nicht bei jedem Deploy verloren gehen.
 
+> Hinweis: Der erste Start kann je nach Serverleistung 5–20 Minuten dauern, weil sowohl Photon als auch OSRM die über 1 GB große `germany-latest.osm.pbf` herunterladen und aufbereiten. In den Container-Logs siehst du Fortschrittsmeldungen wie `Download complete` oder `Routing data ready`. Nach dem initialen Lauf werden die Dateien im Volume erkannt und übersprungen, sodass spätere Deploys deutlich schneller sind.
+
 ## Komplettes Deployment mit Docker Compose / Coolify
 
 - `docker-compose.yml` bringt alle Services (`app`, `db`, `osrm`, `photon`) in einem Stack zusammen.
