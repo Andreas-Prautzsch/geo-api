@@ -91,19 +91,15 @@ download_with_cache() {
       continue
     fi
 
-    tmp_file="${dest}.downloading.$$"
-    log "Downloading ${url} into ${tmp_file}..."
+    tmp_file="${dest}"
+    log "Downloading ${url} into ${dest}..."
     if download_file "${url}" "${tmp_file}"; then
-      if [ "${tmp_file}" != "${dest}" ]; then
-        mv -f "${tmp_file}" "${dest}"
-      fi
       log "Download complete (${dest})."
       release_lock
       return 0
     fi
 
     log "Download failed for ${url}, retrying in 5 minutes."
-    rm -f "${tmp_file}"
     release_lock
     sleep 300
   done
