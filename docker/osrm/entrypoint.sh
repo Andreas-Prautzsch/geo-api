@@ -20,6 +20,23 @@ OSRM_FILE="${OSRM_BASENAME}.osrm"
 log "Using data directory: ${DATA_DIR}"
 log "Expecting PBF: ${PBF_PATH}"
 
+download_file() {
+  src="$1"
+  dest="$2"
+  if command -v curl >/dev/null 2>&1; then
+    curl -fSL --continue-at - "${src}" -o "${dest}"
+    return $?
+  fi
+
+  if command -v wget >/dev/null 2>&1; then
+    wget -c -O "${dest}" "${src}"
+    return $?
+  fi
+
+  log "Neither curl nor wget is available in the container."
+  return 1
+}
+
 download_pbf() {
   if [ -f "${PBF_PATH}" ]; then
     log "PBF already present ($(ls -lh "${PBF_PATH}" | awk '{print $5}')), skipping download."
@@ -28,7 +45,7 @@ download_pbf() {
 
   log "Downloading ${PBF_URL} ..."
   tmp_file="${PBF_PATH}.tmp"
-  if curl -fSL --continue-at - "${PBF_URL}" -o "${tmp_file}"; then
+  if download_file "${PBF_URL}" "${tmp_file}"; then
     mv "${tmp_file}" "${PBF_PATH}"
     log "Download complete ($(ls -lh "${PBF_PATH}" | awk '{print $5}'))."
   else
