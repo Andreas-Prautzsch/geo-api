@@ -112,7 +112,8 @@ Die Vorbereitung der OSRM-Daten geschieht jetzt automatisch beim Start des `osrm
 - `OSRM_PROFILE` (Default: `/opt/car.lua`)
 
 Die Daten werden unter `data/osrm/` abgelegt. Existieren sie bereits, werden sie beim nächsten Deploy nicht erneut heruntergeladen oder vorbereitet.  
-Der API-Server greift über `OSRM_BASE_URL` (Default: `http://osrm:5000`) auf diesen Dienst zu.
+Der API-Server greift über `OSRM_BASE_URL` (Default: `http://osrm:5000`, Fallback `http://localhost:5000`) auf diesen Dienst zu.
+Beim Start der API erscheinen im Log Einträge wie `[ServiceCheck] OSRM Routing ...`, sodass du in Coolify sofort siehst, ob der Routingdienst erreichbar ist.
 
 ## Adress-Geocoding für exakte Fahrstrecken
 
@@ -124,5 +125,17 @@ Der Photon-Geocoder wird ebenfalls automatisiert verwaltet. Beim ersten Start de
 - `PHOTON_JAVA_OPTS` (Optionale JVM-Parameter, z. B. Speicherlimits)
 
 Photon persistiert seine Daten in `data/photon/`. Die API verwendet `GEOCODER_BASE_URL` (Default: `http://photon:2322`).
+Wenn du den Server ohne Docker-Compose startest, greift automatisch der Fallback `http://localhost:2322`.
+Auch für Photon werden beim Booten der API Health-Checks ausgeführt und mit `[ServiceCheck] Photon Geocoder ...` protokolliert.
 
 > Tipp: Coolify setzt die Services automatisch in Gang. Stelle sicher, dass das Volume-Verzeichnis (`data/`) als persistent mount konfiguriert ist, damit Downloads und Indizes nicht bei jedem Deploy verloren gehen.
+
+## Schnelltest mit Bruno
+
+Nach dem erfolgreichen Deploy kannst du in Bruno (oder per Browser) folgende URL aufrufen, um sowohl Geocoder als auch OSRM zu prüfen:
+
+```
+GET http://localhost:3002/api/driving-distance?from=Alexanderplatz%201,%2010178%20Berlin&to=Marienplatz%201,%2080331%20Muenchen
+```
+
+Falls du aus Coolify heraus testest, ersetze `localhost:3002` durch die externe URL deiner Instanz. Ein erfolgreicher Response liefert u. a. `distance.kilometers`, `duration.minutes` und die aufgelösten Adressdaten.

@@ -2,23 +2,12 @@ const express = require('express');
 const { URL } = require('url');
 const { Op, Sequelize } = require('sequelize');
 const Place = require('../models/place'); // Assuming you have a Place model defined
+const { fetchWithTimeout, buildServiceBaseUrls } = require('../helper/httpUtils');
 require('dotenv').config(); // Load environment variables from .env file
 
 const router = express.Router();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
-
-const fetchWithTimeout = async (resource, options = {}) => {
-  const { timeout = 15000, ...rest } = options;
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-  try {
-    return await fetch(resource, { ...rest, signal: controller.signal });
-  } finally {
-    clearTimeout(timeoutId);
-  }
-};
 
 const geocodeAddress = async (address) => {
   const trimmed = address?.trim();
@@ -27,60 +16,74 @@ const geocodeAddress = async (address) => {
     return null;
   }
 
-  const geocoderBaseUrl = process.env.GEOCODER_BASE_URL || 'http://photon:2322';
-  const url = new URL('/api', geocoderBaseUrl);
-  url.searchParams.set('q', trimmed);
-  url.searchParams.set('limit', '1');
-  url.searchParams.set('lang', 'de');
+  const geocoderBaseUrls = buildServiceBaseUrls(process.env.GEOCODER_BASE_URL, [
+    'http://photon:2322',
+    'http://localhost:2322',
+  ]);
 
-  try {
-    const response = await fetchWithTimeout(url, { timeout: 10_000 });
+  let lastError = null;
 
-    if (!response.ok) {
-      const body = await response.text();
-      console.error(`Geocoder backend error: ${response.status} - ${body}`);
-      return null;
+  for (const geocoderBaseUrl of geocoderBaseUrls) {
+    const url = new URL('/api', geocoderBaseUrl);
+    url.searchParams.set('q', trimmed);
+    url.searchParams.set('limit', '1');
+    url.searchParams.set('lang', 'de');
+
+    try {
+      const response = await fetchWithTimeout(url, { timeout: 10_000 });
+
+      if (!response.ok) {
+        const body = await response.text();
+        console.error(`Geocoder backend error (${geocoderBaseUrl}): ${response.status} - ${body}`);
+        continue;
+      }
+
+      const data = await response.json();
+      const feature = data?.features?.[0];
+
+      if (!feature?.geometry?.coordinates) {
+        return null;
+      }
+
+      const [rawLon, rawLat] = feature.geometry.coordinates;
+      const lat = Number(rawLat);
+      const lon = Number(rawLon);
+
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        return null;
+      }
+
+      return {
+        type: 'geocoded',
+        label: feature.properties?.label || trimmed,
+        lat,
+        lon,
+        details: {
+          street: feature.properties?.street,
+          housenumber: feature.properties?.housenumber,
+          postcode: feature.properties?.postcode,
+          city: feature.properties?.city || feature.properties?.locality,
+          state: feature.properties?.state,
+          country: feature.properties?.country,
+        },
+        raw: feature,
+      };
+    } catch (error) {
+      lastError = error;
+
+      if (error.name === 'AbortError') {
+        console.error(`Geocoder backend timeout (${geocoderBaseUrl})`, error);
+      } else {
+        console.error(`Geocoder request failed via ${geocoderBaseUrl}`, error);
+      }
     }
-
-    const data = await response.json();
-    const feature = data?.features?.[0];
-
-    if (!feature?.geometry?.coordinates) {
-      return null;
-    }
-
-    const [rawLon, rawLat] = feature.geometry.coordinates;
-    const lat = Number(rawLat);
-    const lon = Number(rawLon);
-
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-      return null;
-    }
-
-    return {
-      type: 'geocoded',
-      label: feature.properties?.label || trimmed,
-      lat,
-      lon,
-      details: {
-        street: feature.properties?.street,
-        housenumber: feature.properties?.housenumber,
-        postcode: feature.properties?.postcode,
-        city: feature.properties?.city || feature.properties?.locality,
-        state: feature.properties?.state,
-        country: feature.properties?.country,
-      },
-      raw: feature,
-    };
-  } catch (error) {
-    if (error.name === 'AbortError') {
-      console.error('Geocoder backend timeout', error);
-      return null;
-    }
-
-    console.error('Geocoder request failed', error);
-    return null;
   }
+
+  if (lastError) {
+    console.error('Geocoder request failed for all configured base URLs.');
+  }
+
+  return null;
 };
 
 const resolveLocation = async (identifier) => {
@@ -484,49 +487,74 @@ router.get('/api/driving-distance', async (req, res) => {
       return res.status(404).json({ message: 'One or both places could not be found.' });
     }
 
-    const osrmBaseUrl = process.env.OSRM_BASE_URL || 'http://osrm:5000';
-    const coordinates = `${fromPlace.lon},${fromPlace.lat};${toPlace.lon},${toPlace.lat}`;
-    const url = new URL(`/route/v1/driving/${coordinates}`, osrmBaseUrl);
-    url.searchParams.set('overview', 'false');
-    url.searchParams.set('alternatives', 'false');
-    url.searchParams.set('steps', 'false');
-    url.searchParams.set('geometries', 'geojson');
+    const osrmBaseUrls = buildServiceBaseUrls(process.env.OSRM_BASE_URL, [
+      'http://osrm:5000',
+      'http://localhost:5000',
+    ]);
 
-    const response = await fetchWithTimeout(url, { timeout: 15_000 });
+    let lastError = null;
 
-    if (!response.ok) {
-      const body = await response.text();
-      console.error(`OSRM backend error: ${response.status} - ${body}`);
-      return res.status(502).json({ message: 'Routing backend error', status: response.status });
+    for (const osrmBaseUrl of osrmBaseUrls) {
+      const coordinates = `${fromPlace.lon},${fromPlace.lat};${toPlace.lon},${toPlace.lat}`;
+      const url = new URL(`/route/v1/driving/${coordinates}`, osrmBaseUrl);
+      url.searchParams.set('overview', 'false');
+      url.searchParams.set('alternatives', 'false');
+      url.searchParams.set('steps', 'false');
+      url.searchParams.set('geometries', 'geojson');
+
+      try {
+        const response = await fetchWithTimeout(url, { timeout: 15_000 });
+
+        if (!response.ok) {
+          const body = await response.text();
+          console.error(`OSRM backend error (${osrmBaseUrl}): ${response.status} - ${body}`);
+          lastError = new Error(`OSRM backend error: ${response.status}`);
+          continue;
+        }
+
+        const payload = await response.json();
+
+        if (!payload.routes || payload.routes.length === 0) {
+          lastError = new Error('OSRM backend did not return a route.');
+          continue;
+        }
+
+        const route = payload.routes[0];
+        const distanceKm = route.distance / 1000;
+        const durationMinutes = route.duration / 60;
+
+        return res.json({
+          from: formatLocationResponse(fromPlace, from),
+          to: formatLocationResponse(toPlace, to),
+          distance: {
+            meters: Math.round(route.distance),
+            kilometers: Number(distanceKm.toFixed(3)),
+          },
+          duration: {
+            seconds: Math.round(route.duration),
+            minutes: Number(durationMinutes.toFixed(1)),
+          },
+          geometry: route.geometry,
+          osrm: {
+            code: payload.code,
+            waypoints: payload.waypoints,
+          },
+        });
+      } catch (error) {
+        lastError = error;
+        if (error.name === 'AbortError') {
+          console.error(`OSRM backend timeout (${osrmBaseUrl})`, error);
+        } else {
+          console.error(`OSRM request failed via ${osrmBaseUrl}`, error);
+        }
+      }
     }
 
-    const payload = await response.json();
-
-    if (!payload.routes || payload.routes.length === 0) {
-      return res.status(502).json({ message: 'Routing backend did not return a route.' });
+    if (lastError) {
+      return res.status(502).json({ message: lastError.message || 'Routing backend error' });
     }
 
-    const route = payload.routes[0];
-    const distanceKm = route.distance / 1000;
-    const durationMinutes = route.duration / 60;
-
-    res.json({
-      from: formatLocationResponse(fromPlace, from),
-      to: formatLocationResponse(toPlace, to),
-      distance: {
-        meters: Math.round(route.distance),
-        kilometers: Number(distanceKm.toFixed(3)),
-      },
-      duration: {
-        seconds: Math.round(route.duration),
-        minutes: Number(durationMinutes.toFixed(1)),
-      },
-      geometry: route.geometry,
-      osrm: {
-        code: payload.code,
-        waypoints: payload.waypoints,
-      },
-    });
+    return res.status(502).json({ message: 'Routing backend error' });
   } catch (error) {
     if (error.name === 'AbortError') {
       console.error('OSRM backend timeout', error);

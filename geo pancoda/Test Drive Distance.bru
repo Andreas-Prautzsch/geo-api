@@ -1,0 +1,16 @@
+meta {
+  name: Test Drive Distance
+  type: http
+  seq: 2
+}
+
+get {
+  url: https://geo.pancoda.de/api/driving-distance?from=Alexanderplatz%201,%2010178%20Berlin&to=Marienplatz%201,%2080331%20Muenchen
+  body: none
+  auth: inherit
+}
+
+params:query {
+  from: Alexanderplatz 1, 10178 Berlin
+  to: Marienplatz 1, 80331 Muenchen
+}
