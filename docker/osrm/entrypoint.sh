@@ -44,6 +44,10 @@ acquire_lock() {
   fi
 
   LOCK_DIR="${lock_target}.lock"
+  if [ -d "${LOCK_DIR}" ]; then
+    log "Removing stale lock ${LOCK_DIR}"
+    rm -rf "${LOCK_DIR}"
+  fi
   until mkdir "${LOCK_DIR}" 2>/dev/null; do
     log "Waiting for other process to finish downloading ${PBF_FILE}..."
     sleep 15
@@ -55,8 +59,7 @@ acquire_lock() {
 download_file() {
   src="$1"
   dest="$2"
-  curl  -fSL "${src}" -o "${dest}"
-  # curl --retry 5 --retry-delay 30 --retry-connrefused -fSL --continue-at - "${src}" -o "${dest}"
+  curl --retry 5 --retry-delay 30 --retry-connrefused -fSL --continue-at - "${src}" -o "${dest}"
   return $?
 }
 

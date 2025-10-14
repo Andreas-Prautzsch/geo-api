@@ -18,5 +18,8 @@ COPY . .
 # Exponiere den Port der Anwendung
 EXPOSE 3002
 
+COPY docker/app/entrypoint.sh /usr/local/bin/app-entrypoint.sh
+RUN chmod +x /usr/local/bin/app-entrypoint.sh
+
 # Standardbefehl: Migrationen & Seed ausführen und dann die App starten
-CMD npx sequelize-cli db:migrate && npx sequelize-cli db:seed:all && npm start
+CMD ["/usr/local/bin/app-entrypoint.sh"]
