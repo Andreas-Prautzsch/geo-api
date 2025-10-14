@@ -104,10 +104,11 @@ Die Swagger-Dokumentation ist verfügbar unter: `http://localhost:3000/api-docs`
 
 ## Fahrstrecke mit OSRM vorbereiten
 
-Die Vorbereitung der OSRM-Daten geschieht jetzt automatisch beim Start des `osrm`-Services (z. B. via Coolify oder `docker compose up`). Standardmäßig werden die Regionen Rheinland-Pfalz, Nordrhein-Westfalen und Hessen geladen, zu einer Datei zusammengeführt und anschließend verarbeitet. Du kannst das Verhalten über folgende Umgebungsvariablen anpassen:
+Die Vorbereitung der OSRM-Daten geschieht jetzt automatisch beim Start des `osrm`-Services (z. B. via Coolify oder `docker compose up`). Du kannst entweder eine eigene PBF-Kombination herunterlädst oder direkt eine vorbereitete ZIP mit fertigen `.osrm`-Dateien angeben. Wichtige Variablen:
 
-- `OSRM_PBF_URLS` (Default: `rheinland-pfalz`, `nordrhein-westfalen`, `hessen` von Geofabrik – kommagetrennt)
-- `OSRM_PBF_FILE` (Default: `germany-west.osm.pbf`)
+- `OSRM_PREBUILT_URL` (falls gesetzt, lädt der Container die ZIP und entpackt sie in `/data`)
+- `OSRM_PBF_URL` (Einzel-PBF) bzw. `OSRM_PBF_URLS` (kommagetrennte Liste mehrerer Regionen)
+- `OSRM_PBF_FILE` (Dateiname, unter dem die finale PBF in `/data` liegt)
 - `OSRM_ALGORITHM` (Default: `mld`)
 - `OSRM_PROFILE` (Default: `/opt/car.lua`)
 

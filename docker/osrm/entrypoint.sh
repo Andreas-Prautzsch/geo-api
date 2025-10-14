@@ -12,6 +12,8 @@ MULTI_PBF=0
 if [ -n "${PBF_URLS}" ]; then
   MULTI_PBF=1
 fi
+OSRM_PREBUILT_URL="${OSRM_PREBUILT_URL:-}"
+OSRM_PREBUILT_CACHE="${OSRM_PREBUILT_CACHE:-/data/osrm-prebuilt.zip}"
 PBF_FILE="${OSRM_PBF_FILE:-germany-latest.osm.pbf}"
 PROFILE="${OSRM_PROFILE:-/opt/car.lua}"
 OSRM_ALGORITHM="${OSRM_ALGORITHM:-mld}"
@@ -63,6 +65,35 @@ acquire_lock() {
   done
 
   trap release_lock EXIT INT TERM
+}
+
+ensure_prebuilt() {
+  if [ -z "${OSRM_PREBUILT_URL}" ]; then
+    return 1
+  fi
+
+  if [ -f "${OSRM_FILE}" ]; then
+    log "Prebuilt OSRM data already present; skipping download."
+    return 0
+  fi
+
+  log "Downloading prebuilt OSRM archive from ${OSRM_PREBUILT_URL}..."
+  if download_file "${OSRM_PREBUILT_URL}" "${OSRM_PREBUILT_CACHE}"; then
+    log "Download complete; extracting ${OSRM_PREBUILT_CACHE} into ${DATA_DIR}..."
+    if command -v unzip >/dev/null 2>&1; then
+      unzip -o "${OSRM_PREBUILT_CACHE}" -d "${DATA_DIR}"
+    elif command -v tar >/dev/null 2>&1; then
+      tar -xf "${OSRM_PREBUILT_CACHE}" -C "${DATA_DIR}" || tar -xzf "${OSRM_PREBUILT_CACHE}" -C "${DATA_DIR}"
+    else
+      log "No unzip or tar available to extract archive."
+      return 1
+    fi
+    log "OSRM archive extracted."
+    return 0
+  fi
+
+  log "Failed to download prebuilt OSRM data."
+  return 1
 }
 
 download_file() {
@@ -168,6 +199,10 @@ ensure_multi_pbf() {
 }
 
 ensure_pbf() {
+  if ensure_prebuilt; then
+    return
+  fi
+
   if [ -f "${PBF_PATH}" ]; then
     log "PBF already present in data directory ($(ls -lh "${PBF_PATH}" | awk '{print $5}')), skipping download."
     return
