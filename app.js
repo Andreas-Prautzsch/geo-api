@@ -65,6 +65,11 @@ if (process.env.NODE_ENV === 'development') {
 // Middleware
 app.use( express.json() );
 
+// Health endpoint for container checks
+app.get('/', (_req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+});
+
 // Lade alle Routen automatisch
 loadRoutes(app);
 

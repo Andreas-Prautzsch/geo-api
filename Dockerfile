@@ -5,6 +5,9 @@ FROM node:18
 # Arbeitsverzeichnis im Container
 WORKDIR /app
 
+# Installiere benötigte Basis-Tools (curl für Healthchecks etc.)
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates && rm -rf /var/lib/apt/lists/*
+
 # Kopiere package.json und package-lock.json und installiere Produktionsabhängigkeiten
 COPY package*.json ./
 RUN npm install --production
