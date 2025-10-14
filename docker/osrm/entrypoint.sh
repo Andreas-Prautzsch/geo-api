@@ -55,17 +55,17 @@ acquire_lock() {
 download_file() {
   src="$1"
   dest="$2"
-  if command -v curl >/dev/null 2>&1; then
-    curl --retry 5 --retry-delay 30 --retry-connrefused -fSL --continue-at - "${src}" -o "${dest}"
-    return $?
-  fi
-
   if command -v wget >/dev/null 2>&1; then
     wget --tries=5 --waitretry=30 -c -O "${dest}" "${src}"
     return $?
   fi
 
-  log "Neither curl nor wget is available in the container."
+  if command -v curl >/dev/null 2>&1; then
+    curl --retry 5 --retry-delay 30 --retry-connrefused -fSL --continue-at - "${src}" -o "${dest}"
+    return $?
+  fi
+
+  log "Neither wget nor curl is available in the container."
   return 1
 }
 
@@ -112,10 +112,10 @@ ensure_pbf() {
       return
     fi
 
-    log "Download failed, removing partial file and retrying in 60 seconds."
-    rm -f "${tmp_file}"
-    release_lock
-    sleep 60
+  log "Download failed, removing partial file and retrying in 60 seconds."
+  rm -f "${tmp_file}"
+  release_lock
+  sleep 60
   done
 }
 

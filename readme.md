@@ -117,11 +117,12 @@ Beim Start der API erscheinen im Log Einträge wie `[ServiceCheck] OSRM Routing 
 
 ## Adress-Geocoding für exakte Fahrstrecken
 
-Der Photon-Geocoder wird ebenfalls automatisiert verwaltet. Beim ersten Start des `photon`-Services werden die OSM-Daten heruntergeladen und ein Index aufgebaut. vorhandene Daten werden erkannt und nicht erneut importiert. Anpassbare Variablen:
+Der Photon-Geocoder nutzt einen vorgefertigten Index (Standard: `de-latest`) und lädt diesen beim ersten Start automatisch herunter. Sobald `photon.mv.db` im Volume liegt, startet der Dienst ohne weiteren Aufwand. Anpassbare Variablen:
 
-- `PHOTON_PBF_URL` (Default: `https://download.geofabrik.de/europe/germany-latest.osm.pbf`)
-- `PHOTON_PBF_FILE` (Default: `germany-latest.osm.pbf`)
-- `PHOTON_FORCE_REIMPORT` (Default: `false`, bei `true` wird der Index neu aufgebaut)
+- `PHOTON_JAR_URL` / `PHOTON_JAR_FILE` (Quelle und Dateiname des Photon-JARs)
+- `PHOTON_DATASET_URL` (Default: `https://download1.graphhopper.com/public/photon/de-latest.tar.gz`)
+- `PHOTON_DATASET_FILE` (Default: `photon-de-latest.tar.gz`)
+- `PHOTON_DATASET_CACHE_DIR` (Cache-Verzeichnis für den Datensatz, Default: `/osm-cache`)
 - `PHOTON_JAVA_OPTS` (Optionale JVM-Parameter, z. B. Speicherlimits)
 
 Photon persistiert seine Daten in `data/photon/`. Die API verwendet `GEOCODER_BASE_URL` (Default: `http://photon:2322`).
@@ -130,20 +131,20 @@ Auch für Photon werden beim Booten der API Health-Checks ausgeführt und mit `[
 
 > Tipp: Coolify setzt die Services automatisch in Gang. Stelle sicher, dass das Volume-Verzeichnis (`data/`) als persistent mount konfiguriert ist, damit Downloads und Indizes nicht bei jedem Deploy verloren gehen.
 
-> Hinweis: Der erste Start kann je nach Serverleistung 5–20 Minuten dauern, weil sowohl Photon als auch OSRM die über 1 GB große `germany-latest.osm.pbf` herunterladen und aufbereiten. In den Container-Logs siehst du Fortschrittsmeldungen wie `Download complete` oder `Routing data ready`. Nach dem initialen Lauf werden die Dateien im Volume erkannt und übersprungen, sodass spätere Deploys deutlich schneller sind.
+> Hinweis: Der erste Start kann je nach Serverleistung 5–20 Minuten dauern. OSRM lädt und verarbeitet die `germany-latest.osm.pbf` (~5 GB), Photon lädt den fertigen Index (~1–2 GB) und entpackt ihn. In den Container-Logs siehst du Fortschrittsmeldungen wie `Download complete` oder `Routing data ready`. Nach dem initialen Lauf werden die Dateien im Volume erkannt und übersprungen, sodass spätere Deploys deutlich schneller sind.
 
 ## Komplettes Deployment mit Docker Compose / Coolify
 
 - `docker-compose.yml` bringt alle Services (`app`, `db`, `osrm`, `photon`) in einem Stack zusammen.
 - Nutze in Coolify den „Docker Compose / Stack“-Modus oder lokal `docker compose up --build`.
-- Hinterlege persistente Volumes für `./data/osrm` und `./data/photon`, damit PBF-Dateien und Indizes erhalten bleiben.
-- Optional kannst du `./data/osm-cache` als gemeinsamen Cache für die Geofabrik-PBF verbinden (bereits im Compose-File hinterlegt). Dann ziehen Photon und OSRM die große Datei nur einmal und warten gegenseitig, falls einer von beiden gerade lädt.
+- Hinterlege persistente Volumes für `./data/osrm` und `./data/photon`, damit Routingdaten und der Photon-Index erhalten bleiben.
+- Optional kannst du `./data/osm-cache` als gemeinsamen Cache für große Downloads (OSRM-PBF & Photon-Datensatz) verbinden. Beide Services koordinieren sich über Lock-Dateien, sodass die Dateien nur einmal heruntergeladen werden.
 - Setze in der `.env` für den Compose-Betrieb `DB_HOST=db` (der Service-Name aus der Compose-Datei); alle anderen Variablen kannst du übernehmen.
 - Die App kommuniziert intern per `http://osrm:5000` und `http://photon:2322` mit den Hilfsdiensten – Fallbacks auf `localhost` stehen nur für lokale Einzel-Starts bereit.
-- Wenn deine Umgebung keinen Zugriff auf externe Registry-Images hat, kannst du über `PHOTON_JAR_URL` auf eine eigene Quelle für die Photon-JAR-Datei verweisen (Standard: `https://github.com/komoot/photon/releases/download/0.7.4/photon-0.7.4.jar`). Mit `PHOTON_JAR_FILE` legst du fest, unter welchem Dateinamen das JAR im Container abgelegt und gestartet wird.
-- Falls du zuvor eine andere Version im Cache hattest, baue den Photon-Container einmalig neu (`docker compose build --no-cache photon`), damit das neue JAR heruntergeladen wird.
+- Wenn deine Umgebung keinen Zugriff auf externe Registry-Images hat, kannst du über `PHOTON_JAR_URL` auf eine eigene Quelle für die Photon-JAR-Datei verweisen. Mit `PHOTON_JAR_FILE` legst du fest, unter welchem Dateinamen das JAR im Container abgelegt und gestartet wird.
+- Falls du zuvor eine andere Version im Cache hattest, baue den Photon-Container einmalig neu (`docker compose build --no-cache photon`), damit das neue JAR bzw. der Datensatz heruntergeladen wird.
 - Der OSRM-Container nutzt das offizielle Image und ein eigenes Entry-Script; Healthchecks laufen mit `wget`, damit keine zusätzlichen Systempakete nachinstalliert werden müssen.
-- Über `PBF_CACHE_DIR` (oder spezifisch `OSRM_PBF_CACHE_DIR` / `PHOTON_PBF_CACHE_DIR`) kannst du den Speicherort des gemeinsamen PBF-Caches steuern. Standard ist `/osm-cache`, das Compose bereits als Volume einbindet.
+- Über `PBF_CACHE_DIR` bzw. `OSRM_PBF_CACHE_DIR` / `PHOTON_DATASET_CACHE_DIR` kannst du den Speicherort des gemeinsamen Download-Caches steuern. Standard ist `/osm-cache`, das Compose bereits als Volume einbindet.
 - Während des Starts protokolliert der App-Container die Erreichbarkeit aller Dienste; sobald Photon und OSRM „reachable“ melden, funktionieren Adress-Routen-Abfragen.
 - Überprüfe den Fortschritt mit `docker compose logs -f osrm` bzw. `... photon`; du solltest Meldungen wie `Download complete` und `Routing data ready` sehen, bevor der App-Container loslegt.
 

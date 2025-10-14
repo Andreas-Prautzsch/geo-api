@@ -1,4 +1,4 @@
-FROM busybox:1.36.1-glibc as busybox
+FROM busybox:1.36.1-musl as busybox
 
 FROM osrm/osrm-backend:latest
 

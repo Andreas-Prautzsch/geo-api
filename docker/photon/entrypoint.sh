@@ -6,20 +6,19 @@ log() {
 }
 
 DATA_DIR="${PHOTON_DATA_DIR:-/data}"
-PBF_URL="${PHOTON_PBF_URL:-https://download.geofabrik.de/europe/germany-latest.osm.pbf}"
-PBF_FILE="${PHOTON_PBF_FILE:-germany-latest.osm.pbf}"
-IMPORT_FORCE="${PHOTON_FORCE_REIMPORT:-false}"
-PBF_CACHE_DIR="${PHOTON_PBF_CACHE_DIR:-${PBF_CACHE_DIR:-}}"
+DATASET_URL="${PHOTON_DATASET_URL:-https://download1.graphhopper.com/public/photon/de-latest.tar.gz}"
+DATASET_FILE="${PHOTON_DATASET_FILE:-photon-de-latest.tar.gz}"
+DATASET_CACHE_DIR="${PHOTON_DATASET_CACHE_DIR:-${PBF_CACHE_DIR:-}}"
 LOCK_DIR=""
 
 resolve_jar_file() {
-  if [ -n "${PHOTON_JAR_FILE:-}" ]; then
+  if [ -n "${PHOTON_JAR_FILE:-}" ] && [ -f "${PHOTON_JAR_FILE}" ]; then
     printf '%s' "${PHOTON_JAR_FILE}"
     return
   fi
 
-  if [ -f "photon-0.7.4.jar" ]; then
-    printf '%s' "photon-0.7.4.jar"
+  if [ -f "photon.jar" ]; then
+    printf '%s' "photon.jar"
     return
   fi
 
@@ -32,36 +31,50 @@ resolve_jar_file() {
   printf '%s' ""
 }
 
+ensure_directory() {
+  dir="$1"
+  if [ -n "${dir}" ]; then
+    mkdir -p "${dir}"
+  fi
+}
+
 JAR_FILE="$(resolve_jar_file)"
 
 cd /opt/photon
 
-mkdir -p "${DATA_DIR}"
-if [ -n "${PBF_CACHE_DIR}" ]; then
-  mkdir -p "${PBF_CACHE_DIR}"
-fi
+ensure_directory "${DATA_DIR}"
+ensure_directory "${DATASET_CACHE_DIR}"
 
-PBF_PATH="${DATA_DIR}/${PBF_FILE}"
 PHOTON_DB="${DATA_DIR}/photon.mv.db"
-CACHE_PBF_PATH=""
-if [ -n "${PBF_CACHE_DIR}" ]; then
-  CACHE_PBF_PATH="${PBF_CACHE_DIR}/${PBF_FILE}"
-fi
+PHOTON_TRACE_DB="${DATA_DIR}/photon.trace.db"
 
-log "Using data directory: ${DATA_DIR}"
-log "Expecting PBF: ${PBF_PATH}"
 if [ -z "${JAR_FILE}" ]; then
-  log "No Photon jar found in /opt/photon. Please check PHOTON_JAR_FILE / build configuration."
+  log "Photon JAR could not be located."
   exit 1
 fi
 
-log "Using Photon jar: ${JAR_FILE}"
+if [ ! -f "${JAR_FILE}" ]; then
+  log "Photon jar ${JAR_FILE} not found in /opt/photon."
+  exit 1
+fi
+
+if [ -f "${PHOTON_DB}" ]; then
+  log "Photon DB already present ($(ls -lh "${PHOTON_DB}" | awk '{print $5}')), skipping download."
+fi
 
 download_file() {
   url="$1"
   destination="$2"
-  curl --retry 5 --retry-delay 30 --retry-connrefused -fSL --continue-at - "${url}" -o "${destination}"
-  return $?
+  if command -v curl >/dev/null 2>&1; then
+    curl --retry 5 --retry-delay 30 --retry-connrefused -fSL --continue-at - "${url}" -o "${destination}"
+    return $?
+  fi
+  if command -v wget >/dev/null 2>&1; then
+    wget --tries=5 --waitretry=30 -c -O "${destination}" "${url}"
+    return $?
+  fi
+  log "Neither curl nor wget available for download."
+  return 1
 }
 
 release_lock() {
@@ -80,81 +93,110 @@ acquire_lock() {
 
   LOCK_DIR="${lock_target}.lock"
   until mkdir "${LOCK_DIR}" 2>/dev/null; do
-    log "Waiting for other process to finish downloading ${PBF_FILE}..."
+    log "Waiting for other process to finish downloading dataset..."
     sleep 15
   done
 
   trap release_lock EXIT INT TERM
 }
 
-ensure_pbf() {
+move_database_files() {
+  search_dir="$1"
+  find "${search_dir}" -type f \( -name 'photon*.mv.db' -o -name 'photon*.trace.db' \) | while read -r file; do
+    base="$(basename "${file}")"
+    target="${DATA_DIR}/${base}"
+    if [ "${file}" != "${target}" ]; then
+      mv "${file}" "${target}"
+    fi
+  done
+}
+
+extract_dataset() {
+  archive="$1"
+  log "Extracting dataset from ${archive}..."
+  tmp_dir="$(mktemp -d /tmp/photon-dataset-XXXXXX)"
+  if tar -xzf "${archive}" -C "${tmp_dir}"; then
+    move_database_files "${tmp_dir}"
+    # Some archives contain nested directories; move everything inside data dir preserving structure if DB still missing
+    if [ ! -f "${PHOTON_DB}" ]; then
+      find "${tmp_dir}" -mindepth 1 -maxdepth 1 -exec cp -r {} "${DATA_DIR}/" \;
+    fi
+    rm -rf "${tmp_dir}"
+  else
+    rm -rf "${tmp_dir}"
+    log "Failed to extract dataset archive."
+    exit 1
+  fi
+}
+
+ensure_dataset() {
+  if [ -f "${PHOTON_DB}" ]; then
+    return
+  fi
+
+  dataset_target="${DATASET_CACHE_DIR:+${DATASET_CACHE_DIR}/${DATASET_FILE}}"
+  if [ -z "${dataset_target}" ]; then
+    dataset_target="${DATA_DIR}/${DATASET_FILE}"
+  fi
+  ensure_directory "$(dirname "${dataset_target}")"
+
   while true; do
-    if [ -f "${PBF_PATH}" ]; then
-      log "PBF already present in data directory ($(ls -lh "${PBF_PATH}" | awk '{print $5}')), skipping download."
+    if [ -f "${PHOTON_DB}" ]; then
       return
     fi
 
-    if [ -n "${CACHE_PBF_PATH}" ] && [ -f "${CACHE_PBF_PATH}" ]; then
-      log "Found cached PBF at ${CACHE_PBF_PATH}, copying..."
-      cp "${CACHE_PBF_PATH}" "${PBF_PATH}"
-      log "Copy complete."
-      return
+    if [ -f "${dataset_target}" ]; then
+      extract_dataset "${dataset_target}"
+      if [ -f "${PHOTON_DB}" ]; then
+        if [ -z "${DATASET_CACHE_DIR}" ]; then
+          rm -f "${dataset_target}"
+        fi
+        return
+      fi
+      log "Extracted dataset did not contain photon.mv.db, retrying download."
+      rm -f "${dataset_target}"
     fi
 
-    target_for_lock="${CACHE_PBF_PATH:-${PBF_PATH}}"
-    acquire_lock "${target_for_lock}"
+    acquire_lock "${dataset_target}"
 
-    if [ -n "${CACHE_PBF_PATH}" ] && [ -f "${CACHE_PBF_PATH}" ]; then
-      log "Cache file became available during wait, copying..."
-      cp "${CACHE_PBF_PATH}" "${PBF_PATH}"
-      log "Copy complete."
+    if [ -f "${dataset_target}" ]; then
       release_lock
       continue
     fi
 
-    if [ -n "${CACHE_PBF_PATH}" ]; then
-      dest="${CACHE_PBF_PATH}"
-    else
-      dest="${PBF_PATH}"
-    fi
-    tmp_file="${dest}.tmp"
-
-    log "Downloading ${PBF_URL} into ${dest}..."
-    if download_file "${PBF_URL}" "${tmp_file}"; then
-      mv "${tmp_file}" "${dest}"
-      if [ "${dest}" != "${PBF_PATH}" ]; then
-        cp "${dest}" "${PBF_PATH}"
-      fi
-      log "Download complete ($(ls -lh "${dest}" | awk '{print $5}'))."
+    tmp_file="${dataset_target}.tmp"
+    log "Downloading Photon dataset from ${DATASET_URL}..."
+    if download_file "${DATASET_URL}" "${tmp_file}"; then
+      mv "${tmp_file}" "${dataset_target}"
       release_lock
-      return
+      extract_dataset "${dataset_target}"
+      if [ -f "${PHOTON_DB}" ]; then
+        if [ -z "${DATASET_CACHE_DIR}" ]; then
+          rm -f "${dataset_target}"
+        fi
+        return
+      fi
+      log "Extracted dataset did not contain expected files, retrying in 60 seconds."
+      rm -f "${dataset_target}"
+    else
+      log "Dataset download failed, removing partial file and retrying in 60 seconds."
+      rm -f "${tmp_file}"
+      release_lock
+      sleep 60
     fi
-
-    log "Download failed, removing partial file and retrying in 60 seconds."
-    rm -f "${tmp_file}"
-    release_lock
-    sleep 60
   done
 }
 
-import_data() {
-  if [ "${IMPORT_FORCE}" != "true" ] && [ -f "${PHOTON_DB}" ]; then
-    log "Existing index detected ($(ls -lh "${PHOTON_DB}" | awk '{print $5}')), skipping import."
-    return
-  fi
+ensure_dataset
 
-  log "Importing data from ${PBF_PATH} (can take several minutes)..."
-  if [ ! -f "${JAR_FILE}" ]; then
-    log "Photon jar ${JAR_FILE} not found."
-    exit 1
-  fi
+if [ ! -f "${PHOTON_DB}" ]; then
+  log "Photon database not found after download."
+  exit 1
+fi
 
-  java ${JAVA_OPTS:-} -jar "${JAR_FILE}" import --nominatim-export "${PBF_PATH}"
-  log "Import finished."
-}
-
-ensure_pbf
-import_data
+if [ ! -f "${PHOTON_TRACE_DB}" ]; then
+  log "Photon trace DB not found; continuing without it."
+fi
 
 log "Starting Photon API..."
-exec java ${JAVA_OPTS:-} -jar "${JAR_FILE}"
+exec java ${JAVA_OPTS:-} -jar "${JAR_FILE}" -data-dir "${DATA_DIR}"
