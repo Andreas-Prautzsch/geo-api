@@ -16,8 +16,8 @@ resolve_jar_file() {
     return
   fi
 
-  if [ -f "photon.jar" ]; then
-    printf '%s' "photon.jar"
+  if [ -f "photon-0.7.4.jar" ]; then
+    printf '%s' "photon-0.7.4.jar"
     return
   fi
 
