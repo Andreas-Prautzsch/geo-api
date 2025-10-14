@@ -60,16 +60,8 @@ log "Using Photon jar: ${JAR_FILE}"
 download_file() {
   url="$1"
   destination="$2"
-  if command -v curl >/dev/null 2>&1; then
-    curl --retry 5 --retry-delay 30 --retry-connrefused -fSL --continue-at - "${url}" -o "${destination}"
-    return $?
-  fi
-  if command -v wget >/dev/null 2>&1; then
-    wget --tries=5 --waitretry=30 -c -O "${destination}" "${url}"
-    return $?
-  fi
-  log "Neither curl nor wget available for download."
-  return 1
+  curl --retry 5 --retry-delay 30 --retry-connrefused -fSL --continue-at - "${url}" -o "${destination}"
+  return $?
 }
 
 release_lock() {
@@ -157,7 +149,7 @@ import_data() {
     exit 1
   fi
 
-  java ${JAVA_OPTS:-} -jar "${JAR_FILE}" --nominatim-export "${PBF_PATH}"
+  java ${JAVA_OPTS:-} -jar "${JAR_FILE}" import --nominatim-export "${PBF_PATH}"
   log "Import finished."
 }
 
