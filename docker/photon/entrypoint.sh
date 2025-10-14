@@ -96,58 +96,53 @@ acquire_lock() {
 }
 
 ensure_pbf() {
-  if [ -f "${PBF_PATH}" ]; then
-    log "PBF already present in data directory ($(ls -lh "${PBF_PATH}" | awk '{print $5}')), skipping download."
-    return
-  fi
+  while true; do
+    if [ -f "${PBF_PATH}" ]; then
+      log "PBF already present in data directory ($(ls -lh "${PBF_PATH}" | awk '{print $5}')), skipping download."
+      return
+    fi
 
-  # Try cache first
-  if [ -n "${CACHE_PBF_PATH}" ] && [ -f "${CACHE_PBF_PATH}" ]; then
-    log "Found cached PBF at ${CACHE_PBF_PATH}, copying..."
-    cp "${CACHE_PBF_PATH}" "${PBF_PATH}"
-    log "Copy complete."
-    release_lock
-    return
-  fi
+    if [ -n "${CACHE_PBF_PATH}" ] && [ -f "${CACHE_PBF_PATH}" ]; then
+      log "Found cached PBF at ${CACHE_PBF_PATH}, copying..."
+      cp "${CACHE_PBF_PATH}" "${PBF_PATH}"
+      log "Copy complete."
+      return
+    fi
 
-  target_for_lock="${CACHE_PBF_PATH:-${PBF_PATH}}"
-  acquire_lock "${target_for_lock}"
+    target_for_lock="${CACHE_PBF_PATH:-${PBF_PATH}}"
+    acquire_lock "${target_for_lock}"
 
-  if [ -n "${CACHE_PBF_PATH}" ]; then
-    if [ -f "${CACHE_PBF_PATH}" ]; then
-      log "Cache file became available, copying..."
+    if [ -n "${CACHE_PBF_PATH}" ] && [ -f "${CACHE_PBF_PATH}" ]; then
+      log "Cache file became available during wait, copying..."
       cp "${CACHE_PBF_PATH}" "${PBF_PATH}"
       log "Copy complete."
       release_lock
+      continue
+    fi
+
+    if [ -n "${CACHE_PBF_PATH}" ]; then
+      dest="${CACHE_PBF_PATH}"
+    else
+      dest="${PBF_PATH}"
+    fi
+    tmp_file="${dest}.tmp"
+
+    log "Downloading ${PBF_URL} into ${dest}..."
+    if download_file "${PBF_URL}" "${tmp_file}"; then
+      mv "${tmp_file}" "${dest}"
+      if [ "${dest}" != "${PBF_PATH}" ]; then
+        cp "${dest}" "${PBF_PATH}"
+      fi
+      log "Download complete ($(ls -lh "${dest}" | awk '{print $5}'))."
+      release_lock
       return
     fi
-    log "Downloading ${PBF_URL} into cache directory..."
-    tmp_file="${CACHE_PBF_PATH}.tmp"
-    if download_file "${PBF_URL}" "${tmp_file}"; then
-      mv "${tmp_file}" "${CACHE_PBF_PATH}"
-      cp "${CACHE_PBF_PATH}" "${PBF_PATH}"
-      log "Download complete ($(ls -lh "${CACHE_PBF_PATH}" | awk '{print $5}'))."
-      release_lock
-    else
-      log "Download failed, removing partial file."
-      rm -f "${tmp_file}"
-      release_lock
-      exit 1
-    fi
-  else
-    log "Downloading ${PBF_URL} into data directory..."
-    tmp_file="${PBF_PATH}.tmp"
-    if download_file "${PBF_URL}" "${tmp_file}"; then
-      mv "${tmp_file}" "${PBF_PATH}"
-      log "Download complete ($(ls -lh "${PBF_PATH}" | awk '{print $5}'))."
-      release_lock
-    else
-      log "Download failed, removing partial file."
-      rm -f "${tmp_file}"
-      release_lock
-      exit 1
-    fi
-  fi
+
+    log "Download failed, removing partial file and retrying in 60 seconds."
+    rm -f "${tmp_file}"
+    release_lock
+    sleep 60
+  done
 }
 
 import_data() {
@@ -162,7 +157,7 @@ import_data() {
     exit 1
   fi
 
-  java ${JAVA_OPTS:-} -jar "${JAR_FILE}" -nominatim-export "${PBF_PATH}"
+  java ${JAVA_OPTS:-} -jar "${JAR_FILE}" --nominatim-export "${PBF_PATH}"
   log "Import finished."
 }
 
