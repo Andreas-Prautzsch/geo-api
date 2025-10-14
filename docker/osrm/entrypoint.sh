@@ -141,14 +141,14 @@ ensure_multi_pbf() {
   combined_cache="${CACHE_PBF_PATH:-${PBF_PATH}}"
   acquire_lock "${combined_cache}"
   if [ ! -f "${combined_cache}" ]; then
-    tmp_combined="${combined_cache}.combining.$$"
+    tmp_combined="${combined_cache}.tmp.$$"
     if ! command -v osmium >/dev/null 2>&1; then
       log "osmium tool not found; cannot merge multiple regions."
       release_lock
       exit 1
     fi
     log "Combining regions into ${combined_cache}..."
-    if osmium cat ${region_files} -o "${tmp_combined}"; then
+    if osmium cat ${region_files} -o "${tmp_combined}" --output-format osm.pbf; then
       mv -f "${tmp_combined}" "${combined_cache}"
       log "Combined dataset created (${combined_cache})."
     else
