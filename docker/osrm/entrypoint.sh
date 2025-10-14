@@ -102,10 +102,10 @@ ensure_pbf() {
       return
     fi
 
-  log "Download failed, removing partial file and retrying in 60 seconds."
-  rm -f "${tmp_file}"
-  release_lock
-  sleep 60
+    log "Download failed, removing partial file and retrying in 5 minutes."
+    rm -f "${tmp_file}"
+    release_lock
+    sleep 300
   done
 }
 

@@ -17,6 +17,7 @@ const geocodeAddress = async (address) => {
   }
 
   const geocoderBaseUrls = buildServiceBaseUrls(process.env.GEOCODER_BASE_URL, [
+    'https://photon.komoot.io',
     'http://photon:2322',
     'http://localhost:2322',
   ]);
