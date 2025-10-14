@@ -72,7 +72,7 @@ services:
     build:
       context: ./docker/photon
       args:
-        PHOTON_JAR_URL: ${PHOTON_JAR_URL:-photon-0.7.4.jar}
+        PHOTON_JAR_URL: ${PHOTON_JAR_URL:-https://github.com/komoot/photon/releases/download/0.7.4/photon-0.7.4.jar}
     environment:
       - PHOTON_PBF_URL=${PHOTON_PBF_URL:-https://download.geofabrik.de/europe/germany-latest.osm.pbf}
       - PHOTON_PBF_FILE=${PHOTON_PBF_FILE:-germany-latest.osm.pbf}
