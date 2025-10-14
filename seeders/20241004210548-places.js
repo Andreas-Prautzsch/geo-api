@@ -13,7 +13,7 @@ module.exports = {
             const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
 
             const places = data.map(place => ({
-                id: place.id,
+                id: Number(place.id),
                 country: place.country,
                 zipcode: place.zipcode,
                 name: place.name,
@@ -25,9 +25,31 @@ module.exports = {
                 updatedAt: new Date(),
             }));
 
-            // Füge die Daten zur Tabelle hinzu
-            await queryInterface.bulkInsert('places', places, {});
-            console.log(`Importiert: ${file}`);
+            if (places.length === 0) {
+                console.log(`Keine Datensätze in ${file}, übersprungen.`);
+                continue;
+            }
+
+            const ids = places.map(place => place.id);
+
+            const existing = await queryInterface.sequelize.query(
+                'SELECT id FROM "places" WHERE id IN (:ids)',
+                {
+                    replacements: { ids },
+                    type: Sequelize.QueryTypes.SELECT,
+                }
+            );
+
+            const existingIds = new Set(existing.map(row => Number(row.id)));
+            const newPlaces = places.filter(place => !existingIds.has(Number(place.id)));
+
+            if (newPlaces.length === 0) {
+                console.log(`Übersprungen (bereits vorhanden): ${file}`);
+                continue;
+            }
+
+            await queryInterface.bulkInsert('places', newPlaces, {});
+            console.log(`Importiert: ${file} (${newPlaces.length} neue Datensätze)`);
         }
     },
 
