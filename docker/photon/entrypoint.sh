@@ -10,6 +10,28 @@ PBF_URL="${PHOTON_PBF_URL:-https://download.geofabrik.de/europe/germany-latest.o
 PBF_FILE="${PHOTON_PBF_FILE:-germany-latest.osm.pbf}"
 IMPORT_FORCE="${PHOTON_FORCE_REIMPORT:-false}"
 
+resolve_jar_file() {
+  if [ -n "${PHOTON_JAR_FILE:-}" ]; then
+    printf '%s' "${PHOTON_JAR_FILE}"
+    return
+  fi
+
+  if [ -f "photon.jar" ]; then
+    printf '%s' "photon.jar"
+    return
+  fi
+
+  first_match="$(ls -1 photon*.jar 2>/dev/null | head -n 1 || true)"
+  if [ -n "${first_match}" ]; then
+    printf '%s' "${first_match}"
+    return
+  fi
+
+  printf '%s' ""
+}
+
+JAR_FILE="$(resolve_jar_file)"
+
 cd /opt/photon
 
 mkdir -p "${DATA_DIR}"
@@ -19,6 +41,12 @@ PHOTON_DB="${DATA_DIR}/photon.mv.db"
 
 log "Using data directory: ${DATA_DIR}"
 log "Expecting PBF: ${PBF_PATH}"
+if [ -z "${JAR_FILE}" ]; then
+  log "No Photon jar found in /opt/photon. Please check PHOTON_JAR_FILE / build configuration."
+  exit 1
+fi
+
+log "Using Photon jar: ${JAR_FILE}"
 
 download_pbf() {
   if [ -f "${PBF_PATH}" ]; then
@@ -45,7 +73,12 @@ import_data() {
   fi
 
   log "Importing data from ${PBF_PATH} (can take several minutes)..."
-  java ${JAVA_OPTS:-} -jar photon.jar -nominatim-export "${PBF_PATH}"
+  if [ ! -f "${JAR_FILE}" ]; then
+    log "Photon jar ${JAR_FILE} not found."
+    exit 1
+  fi
+
+  java ${JAVA_OPTS:-} -jar "${JAR_FILE}" -nominatim-export "${PBF_PATH}"
   log "Import finished."
 }
 
@@ -53,4 +86,4 @@ download_pbf
 import_data
 
 log "Starting Photon API..."
-exec java ${JAVA_OPTS:-} -jar photon.jar
+exec java ${JAVA_OPTS:-} -jar "${JAR_FILE}"

@@ -139,7 +139,7 @@ Auch für Photon werden beim Booten der API Health-Checks ausgeführt und mit `[
 - Hinterlege persistente Volumes für `./data/osrm` und `./data/photon`, damit PBF-Dateien und Indizes erhalten bleiben.
 - Setze in der `.env` für den Compose-Betrieb `DB_HOST=db` (der Service-Name aus der Compose-Datei); alle anderen Variablen kannst du übernehmen.
 - Die App kommuniziert intern per `http://osrm:5000` und `http://photon:2322` mit den Hilfsdiensten – Fallbacks auf `localhost` stehen nur für lokale Einzel-Starts bereit.
-- Wenn deine Umgebung keinen Zugriff auf externe Registry-Images hat, kannst du über `PHOTON_JAR_URL` auf eine eigene Quelle für `photon.jar` verweisen (Standard: GitHub-Releases von Photon). Der Container lädt das JAR beim Build herunter.
+- Wenn deine Umgebung keinen Zugriff auf externe Registry-Images hat, kannst du über `PHOTON_JAR_URL` auf eine eigene Quelle für die Photon-JAR-Datei verweisen (Standard: GitHub-Releases, aktuell `photon-0.7.4.jar`). Mit `PHOTON_JAR_FILE` legst du fest, unter welchem Dateinamen das JAR im Container abgelegt und gestartet wird.
 - Der OSRM-Container nutzt das offizielle Image und ein eigenes Entry-Script; Healthchecks laufen mit `wget`, damit keine zusätzlichen Systempakete nachinstalliert werden müssen.
 - Während des Starts protokolliert der App-Container die Erreichbarkeit aller Dienste; sobald Photon und OSRM „reachable“ melden, funktionieren Adress-Routen-Abfragen.
 - Überprüfe den Fortschritt mit `docker compose logs -f osrm` bzw. `... photon`; du solltest Meldungen wie `Download complete` und `Routing data ready` sehen, bevor der App-Container loslegt.
