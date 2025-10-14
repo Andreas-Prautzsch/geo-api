@@ -80,12 +80,19 @@ ensure_prebuilt() {
   log "Downloading prebuilt OSRM archive from ${OSRM_PREBUILT_URL}..."
   if download_file "${OSRM_PREBUILT_URL}" "${OSRM_PREBUILT_CACHE}"; then
     log "Download complete; extracting ${OSRM_PREBUILT_CACHE} into ${DATA_DIR}..."
+    extracted=1
     if command -v unzip >/dev/null 2>&1; then
-      unzip -o "${OSRM_PREBUILT_CACHE}" -d "${DATA_DIR}"
-    elif command -v tar >/dev/null 2>&1; then
-      tar -xf "${OSRM_PREBUILT_CACHE}" -C "${DATA_DIR}" || tar -xzf "${OSRM_PREBUILT_CACHE}" -C "${DATA_DIR}"
-    else
-      log "No unzip or tar available to extract archive."
+      if unzip -o "${OSRM_PREBUILT_CACHE}" -d "${DATA_DIR}"; then
+        extracted=0
+      fi
+    fi
+    if [ "${extracted}" -ne 0 ] && command -v tar >/dev/null 2>&1; then
+      if tar -xf "${OSRM_PREBUILT_CACHE}" -C "${DATA_DIR}" || tar -xzf "${OSRM_PREBUILT_CACHE}" -C "${DATA_DIR}"; then
+        extracted=0
+      fi
+    fi
+    if [ "${extracted}" -ne 0 ]; then
+      log "Failed to extract prebuilt archive.";
       return 1
     fi
     log "OSRM archive extracted."
@@ -129,6 +136,16 @@ download_from_google_drive() {
     log "Downloaded file from Google Drive appears to be empty."
     return 1
   fi
+
+  head_bytes=$(head -c 4 "$dest" | tr -d '\0') || head_bytes=""
+  case "$head_bytes" in
+    PK*|\x1f\x8b*)
+      ;; # likely zip or tar.gz
+    *)
+      log "Downloaded file from Google Drive does not look like an archive (header: $head_bytes)."
+      return 1
+      ;;
+  esac
 
   return 0
 }
