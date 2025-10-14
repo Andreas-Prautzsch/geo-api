@@ -55,8 +55,10 @@ services:
       - OSRM_PBF_FILE=${OSRM_PBF_FILE:-germany-latest.osm.pbf}
       - OSRM_ALGORITHM=${OSRM_ALGORITHM:-mld}
       - OSRM_PROFILE=${OSRM_PROFILE:-/opt/car.lua}
+      - OSRM_PBF_CACHE_DIR=${PBF_CACHE_DIR:-/osm-cache}
     volumes:
       - ./data/osrm:/data
+      - ./data/osm-cache:/osm-cache
     ports:
       - 5000:5000
     healthcheck:
@@ -80,8 +82,10 @@ services:
       - PHOTON_FORCE_REIMPORT=${PHOTON_FORCE_REIMPORT:-false}
       - JAVA_OPTS=${PHOTON_JAVA_OPTS:-}
       - PHOTON_JAR_FILE=${PHOTON_JAR_FILE:-photon-0.7.4.jar}
+      - PHOTON_PBF_CACHE_DIR=${PBF_CACHE_DIR:-/osm-cache}
     volumes:
       - ./data/photon:/data
+      - ./data/osm-cache:/osm-cache
     ports:
       - 2322:2322
     healthcheck:

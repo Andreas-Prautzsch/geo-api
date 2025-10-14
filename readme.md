@@ -137,11 +137,13 @@ Auch für Photon werden beim Booten der API Health-Checks ausgeführt und mit `[
 - `docker-compose.yml` bringt alle Services (`app`, `db`, `osrm`, `photon`) in einem Stack zusammen.
 - Nutze in Coolify den „Docker Compose / Stack“-Modus oder lokal `docker compose up --build`.
 - Hinterlege persistente Volumes für `./data/osrm` und `./data/photon`, damit PBF-Dateien und Indizes erhalten bleiben.
+- Optional kannst du `./data/osm-cache` als gemeinsamen Cache für die Geofabrik-PBF verbinden (bereits im Compose-File hinterlegt). Dann ziehen Photon und OSRM die große Datei nur einmal und warten gegenseitig, falls einer von beiden gerade lädt.
 - Setze in der `.env` für den Compose-Betrieb `DB_HOST=db` (der Service-Name aus der Compose-Datei); alle anderen Variablen kannst du übernehmen.
 - Die App kommuniziert intern per `http://osrm:5000` und `http://photon:2322` mit den Hilfsdiensten – Fallbacks auf `localhost` stehen nur für lokale Einzel-Starts bereit.
 - Wenn deine Umgebung keinen Zugriff auf externe Registry-Images hat, kannst du über `PHOTON_JAR_URL` auf eine eigene Quelle für die Photon-JAR-Datei verweisen (Standard: `https://github.com/komoot/photon/releases/download/0.7.4/photon-0.7.4.jar`). Mit `PHOTON_JAR_FILE` legst du fest, unter welchem Dateinamen das JAR im Container abgelegt und gestartet wird.
 - Falls du zuvor eine andere Version im Cache hattest, baue den Photon-Container einmalig neu (`docker compose build --no-cache photon`), damit das neue JAR heruntergeladen wird.
 - Der OSRM-Container nutzt das offizielle Image und ein eigenes Entry-Script; Healthchecks laufen mit `wget`, damit keine zusätzlichen Systempakete nachinstalliert werden müssen.
+- Über `PBF_CACHE_DIR` (oder spezifisch `OSRM_PBF_CACHE_DIR` / `PHOTON_PBF_CACHE_DIR`) kannst du den Speicherort des gemeinsamen PBF-Caches steuern. Standard ist `/osm-cache`, das Compose bereits als Volume einbindet.
 - Während des Starts protokolliert der App-Container die Erreichbarkeit aller Dienste; sobald Photon und OSRM „reachable“ melden, funktionieren Adress-Routen-Abfragen.
 - Überprüfe den Fortschritt mit `docker compose logs -f osrm` bzw. `... photon`; du solltest Meldungen wie `Download complete` und `Routing data ready` sehen, bevor der App-Container loslegt.
 
