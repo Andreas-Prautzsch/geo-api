@@ -8,6 +8,8 @@ services:
       - NODE_ENV=production
       - OSRM_BASE_URL=${OSRM_BASE_URL:-http://osrm:5000}
       - GEOCODER_BASE_URL=${GEOCODER_BASE_URL:-http://photon:2322}
+      - DB_HOST=${DB_HOST:-db}
+      - DB_PORT=${DB_PORT:-5432}
     depends_on:
       db:
         condition: service_healthy
@@ -23,6 +25,7 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+    restart: unless-stopped
     networks:
       - backend-network
 
@@ -41,6 +44,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
     networks:
       - backend-network
   osrm:
@@ -56,11 +60,12 @@ services:
     ports:
       - 5000:5000
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:5000/health || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS \"http://localhost:5000/route/v1/driving/13.404954,52.520008;13.38886,52.517037?overview=false\" || exit 1"]
       interval: 30s
-      timeout: 15s
-      retries: 20
-      start_period: 600s
+      timeout: 30s
+      retries: 30
+      start_period: 900s
+    restart: unless-stopped
     networks:
       - backend-network
   photon:
@@ -76,11 +81,12 @@ services:
     ports:
       - 2322:2322
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:2322/ || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS \"http://localhost:2322/api?q=Berlin&limit=1\" || exit 1"]
       interval: 30s
-      timeout: 15s
-      retries: 20
-      start_period: 600s
+      timeout: 30s
+      retries: 30
+      start_period: 900s
+    restart: unless-stopped
     networks:
       - backend-network
 
