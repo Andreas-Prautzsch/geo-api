@@ -6,7 +6,7 @@ RUN set -eux; \
     sed -i '/stretch-updates/d' /etc/apt/sources.list; \
     echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid; \
     apt-get update; \
-    apt-get install -y --no-install-recommends curl ca-certificates; \
+    apt-get install -y --no-install-recommends curl ca-certificates osmium-tool; \
     rm -rf /var/lib/apt/lists/*
 
 COPY entrypoint.sh /usr/local/bin/osrm-entrypoint.sh

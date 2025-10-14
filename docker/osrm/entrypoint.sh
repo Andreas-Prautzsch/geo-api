@@ -7,6 +7,11 @@ log() {
 
 DATA_DIR="${OSRM_DATA_DIR:-/data}"
 PBF_URL="${OSRM_PBF_URL:-https://download.geofabrik.de/europe/germany-latest.osm.pbf}"
+PBF_URLS="${OSRM_PBF_URLS:-}"
+MULTI_PBF=0
+if [ -n "${PBF_URLS}" ]; then
+  MULTI_PBF=1
+fi
 PBF_FILE="${OSRM_PBF_FILE:-germany-latest.osm.pbf}"
 PROFILE="${OSRM_PROFILE:-/opt/car.lua}"
 OSRM_ALGORITHM="${OSRM_ALGORITHM:-mld}"
@@ -28,6 +33,10 @@ fi
 
 log "Using data directory: ${DATA_DIR}"
 log "Expecting PBF: ${PBF_PATH}"
+
+trim() {
+  echo "$1" | sed 's/^ *//;s/ *$//'
+}
 
 release_lock() {
   if [ -n "${LOCK_DIR}" ]; then
@@ -63,56 +72,121 @@ download_file() {
   return $?
 }
 
-ensure_pbf() {
+download_with_cache() {
+  url="$1"
+  dest="$2"
+  dest_dir="$(dirname "${dest}")"
+  mkdir -p "${dest_dir}"
+
   while true; do
-    if [ -f "${PBF_PATH}" ]; then
-      log "PBF already present in data directory ($(ls -lh "${PBF_PATH}" | awk '{print $5}')), skipping download."
-      return
+    if [ -f "${dest}" ]; then
+      log "Using cached file ${dest} ($(ls -lh "${dest}" | awk '{print $5}'))."
+      return 0
     fi
 
-    if [ -n "${CACHE_PBF_PATH}" ] && [ -f "${CACHE_PBF_PATH}" ]; then
-      log "Found cached PBF at ${CACHE_PBF_PATH}, copying..."
-      cp "${CACHE_PBF_PATH}" "${PBF_PATH}"
-      log "Copy complete."
-      return
-    fi
+    acquire_lock "${dest}"
 
-    target_for_lock="${CACHE_PBF_PATH:-${PBF_PATH}}"
-    acquire_lock "${target_for_lock}"
-
-    if [ -n "${CACHE_PBF_PATH}" ] && [ -f "${CACHE_PBF_PATH}" ]; then
-      log "Cache file became available during wait, copying..."
-      cp "${CACHE_PBF_PATH}" "${PBF_PATH}"
-      log "Copy complete."
+    if [ -f "${dest}" ]; then
       release_lock
       continue
     fi
 
-    if [ -n "${CACHE_PBF_PATH}" ]; then
-      dest="${CACHE_PBF_PATH}"
-    else
-      dest="${PBF_PATH}"
-    fi
     tmp_file="${dest}.downloading.$$"
-
-    log "Downloading ${PBF_URL} into ${dest} (tmp ${tmp_file})..."
-    if download_file "${PBF_URL}" "${tmp_file}"; then
-      if [ "${tmp_file}" != "${dest}" ]; then
-        mv -f "${tmp_file}" "${dest}"
-      fi
-      if [ "${dest}" != "${PBF_PATH}" ]; then
-        cp "${dest}" "${PBF_PATH}"
-      fi
-      log "Download complete ($(ls -lh "${dest}" | awk '{print $5}'))."
+    log "Downloading ${url} into ${tmp_file}..."
+    if download_file "${url}" "${tmp_file}"; then
+      mv -f "${tmp_file}" "${dest}"
+      log "Download complete (${dest})."
       release_lock
-      return
+      return 0
     fi
 
-    log "Download failed, removing partial file and retrying in 5 minutes."
+    log "Download failed for ${url}, retrying in 5 minutes."
     rm -f "${tmp_file}"
     release_lock
     sleep 300
   done
+}
+
+ensure_single_pbf() {
+  target_cache="${CACHE_PBF_PATH:-${PBF_PATH}}"
+  download_with_cache "${PBF_URL}" "${target_cache}"
+  if [ "${target_cache}" != "${PBF_PATH}" ]; then
+    cp "${target_cache}" "${PBF_PATH}"
+  fi
+}
+
+ensure_multi_pbf() {
+  if [ -z "${PBF_CACHE_DIR}" ]; then
+    PBF_CACHE_DIR="/osm-cache"
+    mkdir -p "${PBF_CACHE_DIR}"
+  fi
+
+  region_files=""
+  IFS=','
+  for raw_url in ${PBF_URLS}; do
+    url="$(trim "${raw_url}")"
+    if [ -z "${url}" ]; then
+      continue
+    fi
+    region_name="$(basename "${url}")"
+    region_path="${PBF_CACHE_DIR}/${region_name}"
+    download_with_cache "${url}" "${region_path}"
+    region_files="${region_files} ${region_path}"
+  done
+  unset IFS
+
+  if [ -z "${region_files}" ]; then
+    log "No region URLs provided; aborting."
+    exit 1
+  fi
+
+  combined_cache="${CACHE_PBF_PATH:-${PBF_PATH}}"
+  acquire_lock "${combined_cache}"
+  if [ ! -f "${combined_cache}" ]; then
+    tmp_combined="${combined_cache}.combining.$$"
+    if ! command -v osmium >/dev/null 2>&1; then
+      log "osmium tool not found; cannot merge multiple regions."
+      release_lock
+      exit 1
+    fi
+    log "Combining regions into ${combined_cache}..."
+    if osmium cat ${region_files} -o "${tmp_combined}"; then
+      mv -f "${tmp_combined}" "${combined_cache}"
+      log "Combined dataset created (${combined_cache})."
+    else
+      log "Failed to combine datasets; retrying in 5 minutes."
+      rm -f "${tmp_combined}"
+      release_lock
+      sleep 300
+      ensure_multi_pbf
+      return
+    fi
+  fi
+  release_lock
+
+  if [ "${combined_cache}" != "${PBF_PATH}" ]; then
+    cp "${combined_cache}" "${PBF_PATH}"
+  fi
+}
+
+ensure_pbf() {
+  if [ -f "${PBF_PATH}" ]; then
+    log "PBF already present in data directory ($(ls -lh "${PBF_PATH}" | awk '{print $5}')), skipping download."
+    return
+  fi
+
+  if [ -n "${CACHE_PBF_PATH}" ] && [ -f "${CACHE_PBF_PATH}" ]; then
+    log "Found cached PBF at ${CACHE_PBF_PATH}, copying..."
+    cp "${CACHE_PBF_PATH}" "${PBF_PATH}"
+    log "Copy complete."
+    return
+  fi
+
+  if [ "${MULTI_PBF}" -eq 1 ]; then
+    ensure_multi_pbf
+  else
+    ensure_single_pbf
+  fi
 }
 
 prepare_osrm() {

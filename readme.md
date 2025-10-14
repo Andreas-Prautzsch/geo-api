@@ -104,10 +104,10 @@ Die Swagger-Dokumentation ist verfügbar unter: `http://localhost:3000/api-docs`
 
 ## Fahrstrecke mit OSRM vorbereiten
 
-Die Vorbereitung der OSRM-Daten geschieht jetzt automatisch beim Start des `osrm`-Services (z. B. via Coolify oder `docker compose up`). Der Container lädt die `germany-latest.osm.pbf`, erzeugt die nötigen `.osrm`-Dateien und startet anschließend `osrm-routed`. Du kannst das Verhalten über folgende Umgebungsvariablen anpassen:
+Die Vorbereitung der OSRM-Daten geschieht jetzt automatisch beim Start des `osrm`-Services (z. B. via Coolify oder `docker compose up`). Standardmäßig werden die Regionen Rheinland-Pfalz, Nordrhein-Westfalen und Hessen geladen, zu einer Datei zusammengeführt und anschließend verarbeitet. Du kannst das Verhalten über folgende Umgebungsvariablen anpassen:
 
-- `OSRM_PBF_URL` (Default: `https://download.geofabrik.de/europe/germany-latest.osm.pbf`)
-- `OSRM_PBF_FILE` (Default: `germany-latest.osm.pbf`)
+- `OSRM_PBF_URLS` (Default: `rheinland-pfalz`, `nordrhein-westfalen`, `hessen` von Geofabrik – kommagetrennt)
+- `OSRM_PBF_FILE` (Default: `germany-west.osm.pbf`)
 - `OSRM_ALGORITHM` (Default: `mld`)
 - `OSRM_PROFILE` (Default: `/opt/car.lua`)
 
@@ -121,7 +121,7 @@ Out-of-the-box nutzt die API den öffentlichen Photon-Dienst von Komoot (`https:
 
 > Tipp: Coolify setzt die Services automatisch in Gang. Stelle sicher, dass das Volume-Verzeichnis (`data/`) als persistent mount konfiguriert ist, damit Downloads und Indizes nicht bei jedem Deploy verloren gehen.
 
-> Hinweis: Der erste Start kann je nach Serverleistung 5–20 Minuten dauern, weil OSRM die `germany-latest.osm.pbf` (~5 GB) herunterlädt und aufbereitet. In den Logs siehst du Meldungen wie `Download complete` oder `Routing data ready`. Nach dem initialen Lauf werden die Dateien im Volume erkannt und übersprungen, sodass spätere Deploys deutlich schneller sind.
+> Hinweis: Der erste Start kann je nach Serverleistung 5–20 Minuten dauern, weil OSRM die ausgewählten PBF-Dateien (Standard: die drei Bundesländer aus Geofabrik) herunterlädt und aufbereitet. In den Logs siehst du Meldungen wie `Download complete` oder `Routing data ready`. Nach dem initialen Lauf werden die Dateien im Volume erkannt und übersprungen, sodass spätere Deploys deutlich schneller sind.
 
 ## Komplettes Deployment mit Docker Compose / Coolify
 
@@ -133,9 +133,9 @@ Out-of-the-box nutzt die API den öffentlichen Photon-Dienst von Komoot (`https:
 - Die App kommuniziert intern per `http://osrm:5000` mit dem Routingdienst; für das Geocoding verwendet sie standardmäßig `https://photon.komoot.io`.
 - Bei Bedarf kannst du `GEOCODER_BASE_URL` überschreiben, um einen eigenen Photon- oder Nominatim-Endpunkt zu verwenden.
 - Der OSRM-Container nutzt das offizielle Image und ein eigenes Entry-Script; Downloads erfolgen via `curl` mit Retry-Logik.
-- Über `PBF_CACHE_DIR` bzw. `OSRM_PBF_CACHE_DIR` kannst du den Speicherort des OSRM-Download-Caches steuern. Standard ist `/osm-cache`, das Compose bereits als Volume einbindet.
+- Über `PBF_CACHE_DIR` bzw. `OSRM_PBF_CACHE_DIR` kannst du den Speicherort des OSRM-Download-Caches steuern. Standard ist `/osm-cache`, das Compose bereits als Volume einbindet. Für mehrere Regionen werden die einzelnen PBFs dort zwischengespeichert und anschließend mit `osmium cat` zusammengeführt.
 - Während des Starts protokolliert der App-Container die Erreichbarkeit aller Dienste; sobald Photon und OSRM „reachable“ melden, funktionieren Adress-Routen-Abfragen.
-- Überprüfe den Fortschritt mit `docker compose logs -f osrm` bzw. `... photon`; du solltest Meldungen wie `Download complete` und `Routing data ready` sehen, bevor der App-Container loslegt.
+- Überprüfe den Fortschritt mit `docker compose logs -f osrm`; du solltest Meldungen wie `Download complete` und `Routing data ready` sehen, bevor der App-Container loslegt.
 
 ## Schnelltest mit Bruno
 

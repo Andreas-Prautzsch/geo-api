@@ -51,8 +51,8 @@ services:
     build:
       context: ./docker/osrm
     environment:
-      - OSRM_PBF_URL=${OSRM_PBF_URL:-https://download.geofabrik.de/europe/germany-latest.osm.pbf}
-      - OSRM_PBF_FILE=${OSRM_PBF_FILE:-germany-latest.osm.pbf}
+      - OSRM_PBF_URLS=${OSRM_PBF_URLS:-https://download.geofabrik.de/europe/germany/rheinland-pfalz-latest.osm.pbf,https://download.geofabrik.de/europe/germany/nordrhein-westfalen-latest.osm.pbf,https://download.geofabrik.de/europe/germany/hessen-latest.osm.pbf}
+      - OSRM_PBF_FILE=${OSRM_PBF_FILE:-germany-west.osm.pbf}
       - OSRM_ALGORITHM=${OSRM_ALGORITHM:-mld}
       - OSRM_PROFILE=${OSRM_PROFILE:-/opt/car.lua}
       - OSRM_PBF_CACHE_DIR=${PBF_CACHE_DIR:-/osm-cache}
