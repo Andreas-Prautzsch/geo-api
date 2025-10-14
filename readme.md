@@ -120,8 +120,8 @@ Beim Start der API erscheinen im Log Einträge wie `[ServiceCheck] OSRM Routing 
 Der Photon-Geocoder nutzt einen vorgefertigten Index (Standard: `de-latest`) und lädt diesen beim ersten Start automatisch herunter. Sobald `photon.mv.db` im Volume liegt, startet der Dienst ohne weiteren Aufwand. Anpassbare Variablen:
 
 - `PHOTON_JAR_URL` / `PHOTON_JAR_FILE` (Quelle und Dateiname des Photon-JARs)
-- `PHOTON_DATASET_URL` (Default: `https://download1.graphhopper.com/public/photon/de-latest.tar.gz`)
-- `PHOTON_DATASET_FILE` (Default: `photon-de-latest.tar.gz`)
+- `PHOTON_DATASET_URL` (Default: `https://download1.graphhopper.com/public/photon/photon-db-latest.tar.bz2`)
+- `PHOTON_DATASET_FILE` (Default: `photon-db-latest.tar.bz2`)
 - `PHOTON_DATASET_CACHE_DIR` (Cache-Verzeichnis für den Datensatz, Default: `/osm-cache`)
 - `PHOTON_JAVA_OPTS` (Optionale JVM-Parameter, z. B. Speicherlimits)
 

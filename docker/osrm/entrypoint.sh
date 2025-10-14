@@ -56,7 +56,7 @@ download_file() {
   src="$1"
   dest="$2"
   if command -v wget >/dev/null 2>&1; then
-    wget --tries=5 --waitretry=30 -c -O "${dest}" "${src}"
+    wget -c -O "${dest}" "${src}"
     return $?
   fi
 

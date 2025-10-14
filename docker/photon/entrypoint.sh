@@ -6,8 +6,8 @@ log() {
 }
 
 DATA_DIR="${PHOTON_DATA_DIR:-/data}"
-DATASET_URL="${PHOTON_DATASET_URL:-https://download1.graphhopper.com/public/photon/de-latest.tar.gz}"
-DATASET_FILE="${PHOTON_DATASET_FILE:-photon-de-latest.tar.gz}"
+DATASET_URL="${PHOTON_DATASET_URL:-https://download1.graphhopper.com/public/photon/photon-db-latest.tar.bz2}"
+DATASET_FILE="${PHOTON_DATASET_FILE:-photon-db-latest.tar.bz2}"
 DATASET_CACHE_DIR="${PHOTON_DATASET_CACHE_DIR:-${PBF_CACHE_DIR:-}}"
 LOCK_DIR=""
 
@@ -115,7 +115,7 @@ extract_dataset() {
   archive="$1"
   log "Extracting dataset from ${archive}..."
   tmp_dir="$(mktemp -d /tmp/photon-dataset-XXXXXX)"
-  if tar -xzf "${archive}" -C "${tmp_dir}"; then
+  if tar -xf "${archive}" -C "${tmp_dir}"; then
     move_database_files "${tmp_dir}"
     # Some archives contain nested directories; move everything inside data dir preserving structure if DB still missing
     if [ ! -f "${PHOTON_DB}" ]; then
