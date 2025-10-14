@@ -139,6 +139,7 @@ Auch für Photon werden beim Booten der API Health-Checks ausgeführt und mit `[
 - Hinterlege persistente Volumes für `./data/osrm` und `./data/photon`, damit PBF-Dateien und Indizes erhalten bleiben.
 - Setze in der `.env` für den Compose-Betrieb `DB_HOST=db` (der Service-Name aus der Compose-Datei); alle anderen Variablen kannst du übernehmen.
 - Die App kommuniziert intern per `http://osrm:5000` und `http://photon:2322` mit den Hilfsdiensten – Fallbacks auf `localhost` stehen nur für lokale Einzel-Starts bereit.
+- Wenn deine Umgebung keinen Zugriff auf Docker Hub erlaubt, kannst du das Photon-Basisimage via `PHOTON_BASE_IMAGE` (z. B. `ghcr.io/komoot/photon:latest`) anpassen. Der Compose-Stack setzt diesen Wert standardmäßig auf das GHCR-Image.
 - Während des Starts protokolliert der App-Container die Erreichbarkeit aller Dienste; sobald Photon und OSRM „reachable“ melden, funktionieren Adress-Routen-Abfragen.
 - Überprüfe den Fortschritt mit `docker compose logs -f osrm` bzw. `... photon`; du solltest Meldungen wie `Download complete` und `Routing data ready` sehen, bevor der App-Container loslegt.
 

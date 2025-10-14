@@ -1,4 +1,5 @@
-FROM komoot/photon:latest
+ARG PHOTON_BASE_IMAGE=ghcr.io/komoot/photon:latest
+FROM ${PHOTON_BASE_IMAGE}
 
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
