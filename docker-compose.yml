@@ -10,6 +10,9 @@ services:
       - GEOCODER_BASE_URL=${GEOCODER_BASE_URL:-https://photon.komoot.io}
       - DB_HOST=${DB_HOST:-db}
       - DB_PORT=${DB_PORT:-5432}
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASS}
+      - DB_NAME=${DB_NAME}
     depends_on:
       db:
         condition: service_healthy

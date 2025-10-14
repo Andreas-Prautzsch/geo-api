@@ -18,5 +18,5 @@ COPY . .
 # Exponiere den Port der Anwendung
 EXPOSE 3002
 
-# Standardbefehl: Migrationen ausführen und dann die App starten
-CMD npx sequelize-cli db:migrate && npm start
+# Standardbefehl: Migrationen & Seed ausführen und dann die App starten
+CMD npx sequelize-cli db:migrate && npx sequelize-cli db:seed:all && npm start
