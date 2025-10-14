@@ -11,7 +11,8 @@ WORKDIR /opt/photon
 
 RUN echo "Downloading Photon from ${PHOTON_JAR_URL}" \
     && curl -fSL "${PHOTON_JAR_URL}" -o "${PHOTON_JAR_FILE}" \
-    && chmod 644 "${PHOTON_JAR_FILE}"
+    && chmod 644 "${PHOTON_JAR_FILE}" \
+    && if [ "${PHOTON_JAR_FILE}" != "photon.jar" ]; then ln -sf "${PHOTON_JAR_FILE}" photon.jar; fi
 
 COPY entrypoint.sh /usr/local/bin/photon-entrypoint.sh
 RUN chmod +x /usr/local/bin/photon-entrypoint.sh
