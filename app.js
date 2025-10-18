@@ -5,6 +5,12 @@ const helmet = require('helmet');
 const cors = require( 'cors' );
 const { URL } = require('url');
 
+const parseCorsOrigins = (value) =>
+  value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
 const app = express();
 const loadRoutes = require('./helper/loadRoutes');
 const { fetchWithTimeout, buildServiceBaseUrls } = require('./helper/httpUtils');
@@ -12,7 +18,25 @@ require('dotenv').config();
 
 const port = process.env.PORT || 3002;
 
-app.use(cors());
+const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
+  ? parseCorsOrigins(process.env.CORS_ALLOWED_ORIGINS)
+  : ['*'];
+
+const corsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`Origin ${origin} not allowed by CORS`));
+  },
+};
+
+app.use(cors(corsOptions));
 app.use(
   helmet({
     contentSecurityPolicy: {
