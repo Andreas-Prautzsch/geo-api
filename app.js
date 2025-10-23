@@ -102,10 +102,7 @@ const checkExternalServices = async () => {
     {
       name: 'Photon Geocoder',
       buildUrls: () =>
-        buildServiceBaseUrls(process.env.GEOCODER_BASE_URL, [
-          'http://photon:2322',
-          'http://localhost:2322',
-        ]),
+        buildServiceBaseUrls(process.env.GEOCODER_BASE_URL),
       buildRequest: (base) => {
         const url = new URL('/api', base);
         url.searchParams.set('q', 'Berlin');
