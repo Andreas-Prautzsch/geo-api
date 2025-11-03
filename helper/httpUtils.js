@@ -1,3 +1,10 @@
+const ensureTrailingSlash = (value) => {
+  if (typeof value !== 'string' || value.length === 0) {
+    return value;
+  }
+  return value.endsWith('/') ? value : `${value}/`;
+};
+
 const fetchWithTimeout = async (url, options = {}) => {
   const { timeout = 5000, ...fetchOptions } = options;
   
@@ -7,9 +14,10 @@ const fetchWithTimeout = async (url, options = {}) => {
     controller.abort();
   }, timeout);
 
+  const startTime = Date.now();
+
   try {
     console.log(`[HttpUtils] Fetching ${url} with timeout ${timeout}ms`);
-    const startTime = Date.now();
     
     const response = await fetch(url, {
       ...fetchOptions,
@@ -69,4 +77,5 @@ const buildServiceBaseUrls = (envUrl, fallbacks = []) => {
 module.exports = {
   fetchWithTimeout,
   buildServiceBaseUrls,
+  ensureTrailingSlash,
 };

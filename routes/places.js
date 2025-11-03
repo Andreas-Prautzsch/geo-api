@@ -2,7 +2,7 @@ const express = require('express');
 const { URL } = require('url');
 const { Op, Sequelize } = require('sequelize');
 const Place = require('../models/place'); // Assuming you have a Place model defined
-const { fetchWithTimeout, buildServiceBaseUrls } = require('../helper/httpUtils');
+const { fetchWithTimeout, buildServiceBaseUrls, ensureTrailingSlash } = require('../helper/httpUtils');
 require('dotenv').config(); // Load environment variables from .env file
 
 const router = express.Router();
@@ -616,7 +616,8 @@ router.get('/api/driving-distance', async (req, res) => {
     for (const osrmBaseUrl of osrmBaseUrls) {
       attemptCount++;
       const coordinates = `${fromPlace.lon},${fromPlace.lat};${toPlace.lon},${toPlace.lat}`;
-      const url = new URL(`/route/v1/driving/${coordinates}`, osrmBaseUrl);
+      const normalizedBase = ensureTrailingSlash(osrmBaseUrl);
+      const url = new URL(`route/v1/driving/${coordinates}`, normalizedBase);
       url.searchParams.set('overview', 'false');
       url.searchParams.set('alternatives', 'false');
       url.searchParams.set('steps', 'false');

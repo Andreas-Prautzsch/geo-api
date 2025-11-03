@@ -13,7 +13,7 @@ const parseCorsOrigins = (value) =>
 
 const app = express();
 const loadRoutes = require('./helper/loadRoutes');
-const { fetchWithTimeout, buildServiceBaseUrls } = require('./helper/httpUtils');
+const { fetchWithTimeout, buildServiceBaseUrls, ensureTrailingSlash } = require('./helper/httpUtils');
 require('dotenv').config();
 
 const port = process.env.PORT || 3002;
@@ -129,7 +129,8 @@ const checkExternalServices = async () => {
         ]),
       buildRequest: (base) => {
         const coordinates = '13.404954,52.520008;13.38886,52.517037'; // short Berlin sanity route
-        const url = new URL(`/route/v1/driving/${coordinates}`, base);
+        const normalizedBase = ensureTrailingSlash(base);
+        const url = new URL(`route/v1/driving/${coordinates}`, normalizedBase);
         url.searchParams.set('overview', 'false');
         url.searchParams.set('alternatives', 'false');
         url.searchParams.set('steps', 'false');
