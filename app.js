@@ -17,6 +17,22 @@ const { fetchWithTimeout, buildServiceBaseUrls, ensureTrailingSlash, toPositiveI
 require('dotenv').config();
 
 const port = process.env.PORT || 3002;
+const requestLogEnabled = process.env.REQUEST_LOGGING !== 'false';
+
+app.enable('trust proxy');
+
+if (requestLogEnabled) {
+  app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+      const duration = Date.now() - start;
+      console.log(
+        `[Request] ${req.ip || req.socket?.remoteAddress || 'unknown'} ${req.method} ${req.originalUrl} -> ${res.statusCode} (${duration}ms)`
+      );
+    });
+    next();
+  });
+}
 
 const allowedOrigins = process.env.CORS_ALLOWED_ORIGINS
   ? parseCorsOrigins(process.env.CORS_ALLOWED_ORIGINS)
