@@ -13,32 +13,48 @@ const geocodeAddress = async (address) => {
   const trimmed = address?.trim();
 
   if (!trimmed) {
+    console.warn('[Geocoder] Empty or invalid address provided');
     return null;
   }
 
+  console.log(`[Geocoder] Starting geocoding request for address: "${trimmed}"`);
+  
   const geocoderBaseUrls = buildServiceBaseUrls(process.env.GEOCODER_BASE_URL);
+  console.log(`[Geocoder] Available base URLs: ${geocoderBaseUrls.join(', ')}`);
 
   let lastError = null;
+  let attemptCount = 0;
 
   for (const geocoderBaseUrl of geocoderBaseUrls) {
+    attemptCount++;
     const url = new URL('/api', geocoderBaseUrl);
     url.searchParams.set('q', trimmed);
     url.searchParams.set('limit', '1');
     url.searchParams.set('lang', 'de');
 
+    console.log(`[Geocoder] Attempt ${attemptCount}/${geocoderBaseUrls.length} - Requesting: ${url.toString()}`);
+    const startTime = Date.now();
+
     try {
       const response = await fetchWithTimeout(url, { timeout: 10_000 });
+      const responseTime = Date.now() - startTime;
+
+      console.log(`[Geocoder] Response received from ${geocoderBaseUrl} in ${responseTime}ms - Status: ${response.status}`);
 
       if (!response.ok) {
         const body = await response.text();
-        console.error(`Geocoder backend error (${geocoderBaseUrl}): ${response.status} - ${body}`);
+        console.error(`[Geocoder] Backend error (${geocoderBaseUrl}): ${response.status} ${response.statusText} - Response body: ${body.substring(0, 200)}`);
+        lastError = new Error(`HTTP ${response.status}: ${response.statusText}`);
         continue;
       }
 
       const data = await response.json();
+      console.log(`[Geocoder] Parsed JSON response - Features count: ${data?.features?.length || 0}`);
+      
       const feature = data?.features?.[0];
 
       if (!feature?.geometry?.coordinates) {
+        console.warn(`[Geocoder] No valid coordinates found in response for "${trimmed}"`);
         return null;
       }
 
@@ -47,8 +63,11 @@ const geocodeAddress = async (address) => {
       const lon = Number(rawLon);
 
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        console.error(`[Geocoder] Invalid coordinates: lat=${rawLat}, lon=${rawLon}`);
         return null;
       }
+
+      console.log(`[Geocoder] ✓ Successfully geocoded "${trimmed}" to [${lat}, ${lon}] via ${geocoderBaseUrl} in ${responseTime}ms`);
 
       return {
         type: 'geocoded',
@@ -66,18 +85,21 @@ const geocodeAddress = async (address) => {
         raw: feature,
       };
     } catch (error) {
+      const responseTime = Date.now() - startTime;
       lastError = error;
 
       if (error.name === 'AbortError') {
-        console.error(`Geocoder backend timeout (${geocoderBaseUrl})`, error);
+        console.error(`[Geocoder] ✗ Timeout after ${responseTime}ms for ${geocoderBaseUrl} - Address: "${trimmed}"`);
+      } else if (error.cause?.code) {
+        console.error(`[Geocoder] ✗ Network error (${error.cause.code}) for ${geocoderBaseUrl} after ${responseTime}ms - ${error.cause.hostname || ''} - Address: "${trimmed}"`);
       } else {
-        console.error(`Geocoder request failed via ${geocoderBaseUrl}`, error);
+        console.error(`[Geocoder] ✗ Request failed for ${geocoderBaseUrl} after ${responseTime}ms - Error: ${error.message} - Address: "${trimmed}"`, error.stack);
       }
     }
   }
 
   if (lastError) {
-    console.error('Geocoder request failed for all configured base URLs.');
+    console.error(`[Geocoder] ✗✗✗ ALL GEOCODER ENDPOINTS FAILED for address "${trimmed}" - Last error: ${lastError.message}`);
   }
 
   return null;
@@ -87,17 +109,28 @@ const resolveLocation = async (identifier) => {
   const cleaned = identifier?.trim();
 
   if (!cleaned) {
+    console.warn('[ResolveLocation] Empty or invalid identifier provided');
     return null;
   }
+
+  console.log(`[ResolveLocation] Resolving location for identifier: "${cleaned}"`);
 
   let place = null;
 
   if (/^\d+$/.test(cleaned)) {
+    console.log(`[ResolveLocation] Attempting to find place by ID: ${cleaned}`);
     place = await Place.findByPk(cleaned);
+    if (place) {
+      console.log(`[ResolveLocation] ✓ Found place by ID: ${place.id} - ${place.name}`);
+    }
   }
 
   if (!place) {
+    console.log(`[ResolveLocation] Attempting to find place by zipcode: ${cleaned}`);
     place = await Place.findOne({ where: { zipcode: cleaned } });
+    if (place) {
+      console.log(`[ResolveLocation] ✓ Found place by zipcode: ${place.zipcode} - ${place.name}`);
+    }
   }
 
   if (place) {
@@ -105,6 +138,7 @@ const resolveLocation = async (identifier) => {
     const lon = Number(place.lon);
 
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      console.error(`[ResolveLocation] Invalid coordinates in database for place ${place.id}: lat=${place.lat}, lon=${place.lon}`);
       return null;
     }
 
@@ -118,7 +152,14 @@ const resolveLocation = async (identifier) => {
     };
   }
 
-  return geocodeAddress(cleaned);
+  console.log(`[ResolveLocation] No database match found, attempting geocoding for: "${cleaned}"`);
+  const geocoded = await geocodeAddress(cleaned);
+  
+  if (!geocoded) {
+    console.warn(`[ResolveLocation] ✗ Failed to resolve location for: "${cleaned}"`);
+  }
+  
+  return geocoded;
 };
 
 const formatLocationResponse = (location, fallbackLabel) => {
@@ -469,29 +510,46 @@ router.get('/api/distance', async (req, res) => {
  */
 router.get('/api/driving-distance', async (req, res) => {
   const { from, to } = req.query;
+  const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+
+  console.log(`[DrivingDistance:${requestId}] New request - from: "${from}", to: "${to}"`);
 
   if (!from || !to) {
+    console.warn(`[DrivingDistance:${requestId}] Missing parameters`);
     return res.status(400).json({ message: 'Query parameters "from" and "to" are required.' });
   }
 
   try {
+    console.log(`[DrivingDistance:${requestId}] Resolving locations...`);
+    const startResolve = Date.now();
+    
     const [fromPlace, toPlace] = await Promise.all([
       resolveLocation(from),
       resolveLocation(to),
     ]);
 
+    const resolveTime = Date.now() - startResolve;
+    console.log(`[DrivingDistance:${requestId}] Location resolution completed in ${resolveTime}ms`);
+
     if (!fromPlace || !toPlace) {
+      console.warn(`[DrivingDistance:${requestId}] Location resolution failed - fromPlace: ${!!fromPlace}, toPlace: ${!!toPlace}`);
       return res.status(404).json({ message: 'One or both places could not be found.' });
     }
+
+    console.log(`[DrivingDistance:${requestId}] Resolved locations - From: [${fromPlace.lat}, ${fromPlace.lon}], To: [${toPlace.lat}, ${toPlace.lon}]`);
 
     const osrmBaseUrls = buildServiceBaseUrls(process.env.OSRM_BASE_URL, [
       'http://osrm:5000',
       'http://localhost:5000',
     ]);
 
+    console.log(`[DrivingDistance:${requestId}] Available OSRM URLs: ${osrmBaseUrls.join(', ')}`);
+
     let lastError = null;
+    let attemptCount = 0;
 
     for (const osrmBaseUrl of osrmBaseUrls) {
+      attemptCount++;
       const coordinates = `${fromPlace.lon},${fromPlace.lat};${toPlace.lon},${toPlace.lat}`;
       const url = new URL(`/route/v1/driving/${coordinates}`, osrmBaseUrl);
       url.searchParams.set('overview', 'false');
@@ -499,12 +557,18 @@ router.get('/api/driving-distance', async (req, res) => {
       url.searchParams.set('steps', 'false');
       url.searchParams.set('geometries', 'geojson');
 
+      console.log(`[DrivingDistance:${requestId}] OSRM attempt ${attemptCount}/${osrmBaseUrls.length} - URL: ${url.toString()}`);
+      const startTime = Date.now();
+
       try {
         const response = await fetchWithTimeout(url, { timeout: 15_000 });
+        const responseTime = Date.now() - startTime;
+
+        console.log(`[DrivingDistance:${requestId}] OSRM response received from ${osrmBaseUrl} in ${responseTime}ms - Status: ${response.status}`);
 
         if (!response.ok) {
           const body = await response.text();
-          console.error(`OSRM backend error (${osrmBaseUrl}): ${response.status} - ${body}`);
+          console.error(`[DrivingDistance:${requestId}] OSRM backend error (${osrmBaseUrl}): ${response.status} - ${body.substring(0, 200)}`);
           lastError = new Error(`OSRM backend error: ${response.status}`);
           continue;
         }
@@ -512,6 +576,7 @@ router.get('/api/driving-distance', async (req, res) => {
         const payload = await response.json();
 
         if (!payload.routes || payload.routes.length === 0) {
+          console.error(`[DrivingDistance:${requestId}] No routes returned by OSRM - Code: ${payload.code}, Message: ${payload.message || 'N/A'}`);
           lastError = new Error('OSRM backend did not return a route.');
           continue;
         }
@@ -519,6 +584,8 @@ router.get('/api/driving-distance', async (req, res) => {
         const route = payload.routes[0];
         const distanceKm = route.distance / 1000;
         const durationMinutes = route.duration / 60;
+
+        console.log(`[DrivingDistance:${requestId}] ✓ Successfully calculated route via ${osrmBaseUrl} - Distance: ${distanceKm.toFixed(2)}km, Duration: ${durationMinutes.toFixed(1)}min, Response time: ${responseTime}ms`);
 
         return res.json({
           from: formatLocationResponse(fromPlace, from),
@@ -538,27 +605,33 @@ router.get('/api/driving-distance', async (req, res) => {
           },
         });
       } catch (error) {
+        const responseTime = Date.now() - startTime;
         lastError = error;
+        
         if (error.name === 'AbortError') {
-          console.error(`OSRM backend timeout (${osrmBaseUrl})`, error);
+          console.error(`[DrivingDistance:${requestId}] ✗ OSRM timeout after ${responseTime}ms for ${osrmBaseUrl}`);
+        } else if (error.cause?.code) {
+          console.error(`[DrivingDistance:${requestId}] ✗ OSRM network error (${error.cause.code}) for ${osrmBaseUrl} after ${responseTime}ms - ${error.cause.hostname || ''}`);
         } else {
-          console.error(`OSRM request failed via ${osrmBaseUrl}`, error);
+          console.error(`[DrivingDistance:${requestId}] ✗ OSRM request failed for ${osrmBaseUrl} after ${responseTime}ms - Error: ${error.message}`, error.stack);
         }
       }
     }
 
     if (lastError) {
+      console.error(`[DrivingDistance:${requestId}] ✗✗✗ ALL OSRM ENDPOINTS FAILED - Last error: ${lastError.message}`);
       return res.status(502).json({ message: lastError.message || 'Routing backend error' });
     }
 
+    console.error(`[DrivingDistance:${requestId}] ✗✗✗ No OSRM endpoints available`);
     return res.status(502).json({ message: 'Routing backend error' });
   } catch (error) {
     if (error.name === 'AbortError') {
-      console.error('OSRM backend timeout', error);
+      console.error(`[DrivingDistance:${requestId}] ✗ Request timeout - Error: ${error.message}`);
       return res.status(502).json({ message: 'Routing backend timeout' });
     }
 
-    console.error(error);
+    console.error(`[DrivingDistance:${requestId}] ✗ Unexpected error:`, error);
     res.status(500).send('Internal Server Error');
   }
 });
