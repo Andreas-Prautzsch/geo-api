@@ -28,17 +28,6 @@ services:
     restart: unless-stopped
     networks:
       - backend-network
-    labels:
-      traefik.enable: "true"
-      traefik.http.routers.geoapi.rule: 'Host(`geo.pancoda.de`)'
-      traefik.http.routers.geoapi.entrypoints: websecure
-      traefik.http.routers.geoapi.tls: "true"
-      traefik.http.services.geoapi.loadbalancer.server.port: "3002"
-      traefik.http.services.geoapi.loadbalancer.serversTransport: geoapi-transport
-      traefik.http.serversTransports.geoapi-transport.forwardingTimeouts.dialTimeout: 30s
-      traefik.http.serversTransports.geoapi-transport.forwardingTimeouts.responseHeaderTimeout: 30s
-      traefik.http.serversTransports.geoapi-transport.forwardingTimeouts.idleTimeout: 90s
-
   db:
     image: postgres:13
     environment:
