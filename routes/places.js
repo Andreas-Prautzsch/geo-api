@@ -27,15 +27,16 @@ const geocodeAddress = async (address) => {
 
   for (const geocoderBaseUrl of geocoderBaseUrls) {
     attemptCount++;
-    const url = new URL('/api', geocoderBaseUrl);
-    url.searchParams.set('q', trimmed);
-    url.searchParams.set('limit', '1');
-    url.searchParams.set('lang', 'de');
-
-    console.log(`[Geocoder] Attempt ${attemptCount}/${geocoderBaseUrls.length} - Requesting: ${url.toString()}`);
-    const startTime = Date.now();
-
+    
     try {
+      const url = new URL('/api', geocoderBaseUrl);
+      url.searchParams.set('q', trimmed);
+      url.searchParams.set('limit', '1');
+      url.searchParams.set('lang', 'de');
+
+      console.log(`[Geocoder] Attempt ${attemptCount}/${geocoderBaseUrls.length} - Requesting: ${url.toString()}`);
+      const startTime = Date.now();
+
       const response = await fetchWithTimeout(url, { timeout: 10_000 });
       const responseTime = Date.now() - startTime;
 
@@ -48,13 +49,31 @@ const geocodeAddress = async (address) => {
         continue;
       }
 
-      const data = await response.json();
+      let data;
+      try {
+        const responseText = await response.text();
+        console.log(`[Geocoder] Raw response body length: ${responseText.length} bytes`);
+        data = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error(`[Geocoder] Failed to parse JSON response from ${geocoderBaseUrl}:`, parseError.message);
+        lastError = parseError;
+        continue;
+      }
+
       console.log(`[Geocoder] Parsed JSON response - Features count: ${data?.features?.length || 0}`);
       
+      if (!data || typeof data !== 'object') {
+        console.error(`[Geocoder] Invalid response structure from ${geocoderBaseUrl}`);
+        lastError = new Error('Invalid response structure');
+        continue;
+      }
+
       const feature = data?.features?.[0];
 
       if (!feature?.geometry?.coordinates) {
         console.warn(`[Geocoder] No valid coordinates found in response for "${trimmed}"`);
+        // Dies ist kein Fehler - die Adresse wurde einfach nicht gefunden
+        // Wir geben null zurück, aber setzen keinen lastError
         return null;
       }
 
@@ -64,7 +83,8 @@ const geocodeAddress = async (address) => {
 
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
         console.error(`[Geocoder] Invalid coordinates: lat=${rawLat}, lon=${rawLon}`);
-        return null;
+        lastError = new Error('Invalid coordinates in response');
+        continue;
       }
 
       console.log(`[Geocoder] ✓ Successfully geocoded "${trimmed}" to [${lat}, ${lon}] via ${geocoderBaseUrl} in ${responseTime}ms`);
@@ -92,14 +112,21 @@ const geocodeAddress = async (address) => {
         console.error(`[Geocoder] ✗ Timeout after ${responseTime}ms for ${geocoderBaseUrl} - Address: "${trimmed}"`);
       } else if (error.cause?.code) {
         console.error(`[Geocoder] ✗ Network error (${error.cause.code}) for ${geocoderBaseUrl} after ${responseTime}ms - ${error.cause.hostname || ''} - Address: "${trimmed}"`);
+      } else if (error.code === 'ECONNREFUSED') {
+        console.error(`[Geocoder] ✗ Connection refused for ${geocoderBaseUrl} - Address: "${trimmed}"`);
+      } else if (error.code === 'ENOTFOUND') {
+        console.error(`[Geocoder] ✗ DNS lookup failed for ${geocoderBaseUrl} - Address: "${trimmed}"`);
       } else {
-        console.error(`[Geocoder] ✗ Request failed for ${geocoderBaseUrl} after ${responseTime}ms - Error: ${error.message} - Address: "${trimmed}"`, error.stack);
+        console.error(`[Geocoder] ✗ Request failed for ${geocoderBaseUrl} after ${responseTime}ms - Error: ${error.message} - Address: "${trimmed}"`);
+        console.error(`[Geocoder] Error stack:`, error.stack);
       }
     }
   }
 
   if (lastError) {
     console.error(`[Geocoder] ✗✗✗ ALL GEOCODER ENDPOINTS FAILED for address "${trimmed}" - Last error: ${lastError.message}`);
+  } else {
+    console.log(`[Geocoder] No results found for address "${trimmed}" (not an error - address simply not in database)`);
   }
 
   return null;
@@ -115,51 +142,72 @@ const resolveLocation = async (identifier) => {
 
   console.log(`[ResolveLocation] Resolving location for identifier: "${cleaned}"`);
 
-  let place = null;
+  try {
+    let place = null;
 
-  if (/^\d+$/.test(cleaned)) {
-    console.log(`[ResolveLocation] Attempting to find place by ID: ${cleaned}`);
-    place = await Place.findByPk(cleaned);
+    // Versuche zuerst als ID
+    if (/^\d+$/.test(cleaned)) {
+      console.log(`[ResolveLocation] Attempting to find place by ID: ${cleaned}`);
+      try {
+        place = await Place.findByPk(cleaned);
+        if (place) {
+          console.log(`[ResolveLocation] ✓ Found place by ID: ${place.id} - ${place.name}`);
+        } else {
+          console.log(`[ResolveLocation] No place found with ID: ${cleaned}`);
+        }
+      } catch (dbError) {
+        console.error(`[ResolveLocation] Database error while searching by ID:`, dbError.message);
+      }
+    }
+
+    // Versuche als Postleitzahl
+    if (!place) {
+      console.log(`[ResolveLocation] Attempting to find place by zipcode: ${cleaned}`);
+      try {
+        place = await Place.findOne({ where: { zipcode: cleaned } });
+        if (place) {
+          console.log(`[ResolveLocation] ✓ Found place by zipcode: ${place.zipcode} - ${place.name}`);
+        } else {
+          console.log(`[ResolveLocation] No place found with zipcode: ${cleaned}`);
+        }
+      } catch (dbError) {
+        console.error(`[ResolveLocation] Database error while searching by zipcode:`, dbError.message);
+      }
+    }
+
+    // Wenn in Datenbank gefunden, validiere und gib zurück
     if (place) {
-      console.log(`[ResolveLocation] ✓ Found place by ID: ${place.id} - ${place.name}`);
-    }
-  }
+      const lat = Number(place.lat);
+      const lon = Number(place.lon);
 
-  if (!place) {
-    console.log(`[ResolveLocation] Attempting to find place by zipcode: ${cleaned}`);
-    place = await Place.findOne({ where: { zipcode: cleaned } });
-    if (place) {
-      console.log(`[ResolveLocation] ✓ Found place by zipcode: ${place.zipcode} - ${place.name}`);
-    }
-  }
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        console.error(`[ResolveLocation] Invalid coordinates in database for place ${place.id}: lat=${place.lat}, lon=${place.lon}`);
+        return null;
+      }
 
-  if (place) {
-    const lat = Number(place.lat);
-    const lon = Number(place.lon);
-
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
-      console.error(`[ResolveLocation] Invalid coordinates in database for place ${place.id}: lat=${place.lat}, lon=${place.lon}`);
-      return null;
+      return {
+        type: 'place',
+        id: place.id,
+        zipcode: place.zipcode,
+        name: place.name,
+        lat,
+        lon,
+      };
     }
 
-    return {
-      type: 'place',
-      id: place.id,
-      zipcode: place.zipcode,
-      name: place.name,
-      lat,
-      lon,
-    };
+    // Wenn nicht in Datenbank, versuche Geocoding
+    console.log(`[ResolveLocation] No database match found, attempting geocoding for: "${cleaned}"`);
+    const geocoded = await geocodeAddress(cleaned);
+    
+    if (!geocoded) {
+      console.warn(`[ResolveLocation] ✗ Failed to resolve location for: "${cleaned}"`);
+    }
+    
+    return geocoded;
+  } catch (error) {
+    console.error(`[ResolveLocation] Unexpected error while resolving location for "${cleaned}":`, error);
+    return null;
   }
-
-  console.log(`[ResolveLocation] No database match found, attempting geocoding for: "${cleaned}"`);
-  const geocoded = await geocodeAddress(cleaned);
-  
-  if (!geocoded) {
-    console.warn(`[ResolveLocation] ✗ Failed to resolve location for: "${cleaned}"`);
-  }
-  
-  return geocoded;
 };
 
 const formatLocationResponse = (location, fallbackLabel) => {
