@@ -2,12 +2,13 @@ const express = require('express');
 const { URL } = require('url');
 const { Op, Sequelize } = require('sequelize');
 const Place = require('../models/place'); // Assuming you have a Place model defined
-const { fetchWithTimeout, buildServiceBaseUrls, ensureTrailingSlash } = require('../helper/httpUtils');
+const { fetchWithTimeout, buildServiceBaseUrls, ensureTrailingSlash, toPositiveInt } = require('../helper/httpUtils');
 require('dotenv').config(); // Load environment variables from .env file
 
 const router = express.Router();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
+const OSRM_REQUEST_TIMEOUT = toPositiveInt(process.env.OSRM_TIMEOUT_MS, 30_000);
 
 const geocodeAddress = async (address) => {
   const trimmed = address?.trim();
@@ -609,6 +610,7 @@ router.get('/api/driving-distance', async (req, res) => {
     ]);
 
     console.log(`[DrivingDistance:${requestId}] Available OSRM URLs: ${osrmBaseUrls.join(', ')}`);
+    console.log(`[DrivingDistance:${requestId}] OSRM request timeout set to ${OSRM_REQUEST_TIMEOUT}ms`);
 
     let lastError = null;
     let attemptCount = 0;
@@ -627,7 +629,7 @@ router.get('/api/driving-distance', async (req, res) => {
       const startTime = Date.now();
 
       try {
-        const response = await fetchWithTimeout(url, { timeout: 15_000 });
+        const response = await fetchWithTimeout(url, { timeout: OSRM_REQUEST_TIMEOUT });
         const responseTime = Date.now() - startTime;
 
         console.log(`[DrivingDistance:${requestId}] OSRM response received from ${osrmBaseUrl} in ${responseTime}ms - Status: ${response.status}`);

@@ -13,7 +13,7 @@ const parseCorsOrigins = (value) =>
 
 const app = express();
 const loadRoutes = require('./helper/loadRoutes');
-const { fetchWithTimeout, buildServiceBaseUrls, ensureTrailingSlash } = require('./helper/httpUtils');
+const { fetchWithTimeout, buildServiceBaseUrls, ensureTrailingSlash, toPositiveInt } = require('./helper/httpUtils');
 require('dotenv').config();
 
 const port = process.env.PORT || 3002;
@@ -98,6 +98,7 @@ app.get('/', (_req, res) => {
 loadRoutes(app);
 
 const checkExternalServices = async () => {
+  const osrmTimeoutForHealthCheck = Math.min(toPositiveInt(process.env.OSRM_TIMEOUT_MS, 5_000), 15_000);
   const checks = [
     {
       name: 'Photon Geocoder',
@@ -135,7 +136,7 @@ const checkExternalServices = async () => {
         url.searchParams.set('alternatives', 'false');
         url.searchParams.set('steps', 'false');
         url.searchParams.set('geometries', 'geojson');
-        return { url, options: { timeout: 5000 } };
+        return { url, options: { timeout: osrmTimeoutForHealthCheck } };
       },
       onSuccess: (base) => {
         console.log(`[ServiceCheck] OSRM Routing reachable via ${base}`);

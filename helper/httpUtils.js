@@ -5,6 +5,11 @@ const ensureTrailingSlash = (value) => {
   return value.endsWith('/') ? value : `${value}/`;
 };
 
+const toPositiveInt = (value, fallback) => {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
 const fetchWithTimeout = async (url, options = {}) => {
   const { timeout = 5000, ...fetchOptions } = options;
   
@@ -78,4 +83,5 @@ module.exports = {
   fetchWithTimeout,
   buildServiceBaseUrls,
   ensureTrailingSlash,
+  toPositiveInt,
 };
