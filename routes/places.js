@@ -8,7 +8,7 @@ require('dotenv').config(); // Load environment variables from .env file
 const router = express.Router();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_jwt_secret';
-const OSRM_REQUEST_TIMEOUT = toPositiveInt(process.env.OSRM_TIMEOUT_MS, 30_000);
+const OSRM_REQUEST_TIMEOUT = toPositiveInt(process.env.OSRM_TIMEOUT_MS, 60_000);
 
 const geocodeAddress = async (address) => {
   const trimmed = address?.trim();
