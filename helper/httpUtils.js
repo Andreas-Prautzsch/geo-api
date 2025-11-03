@@ -9,22 +9,27 @@ const fetchWithTimeout = async (url, options = {}) => {
 
   try {
     console.log(`[HttpUtils] Fetching ${url} with timeout ${timeout}ms`);
+    const startTime = Date.now();
+    
     const response = await fetch(url, {
       ...fetchOptions,
       signal: controller.signal,
     });
+    
     clearTimeout(timeoutId);
-    console.log(`[HttpUtils] Fetch completed for ${url} - Status: ${response.status}`);
+    const fetchTime = Date.now() - startTime;
+    console.log(`[HttpUtils] Fetch completed for ${url} in ${fetchTime}ms - Status: ${response.status}`);
     return response;
   } catch (error) {
     clearTimeout(timeoutId);
+    const fetchTime = Date.now() - startTime;
     
     if (error.name === 'AbortError') {
-      console.error(`[HttpUtils] Request aborted (timeout) for ${url}`);
+      console.error(`[HttpUtils] Request aborted (timeout after ${timeout}ms) for ${url} - Actual time: ${fetchTime}ms`);
       throw error;
     }
     
-    console.error(`[HttpUtils] Fetch error for ${url}:`, error.message);
+    console.error(`[HttpUtils] Fetch error for ${url} after ${fetchTime}ms:`, error.message);
     throw error;
   }
 };
@@ -39,23 +44,23 @@ const buildServiceBaseUrls = (envUrl, fallbacks = []) => {
       // Unterstützung für mehrere URLs getrennt durch Komma oder Semikolon
       const splitUrls = trimmed.split(/[,;]/).map(u => u.trim()).filter(Boolean);
       urls.push(...splitUrls);
-      console.log(`[HttpUtils] Loaded ${splitUrls.length} URL(s) from environment variable`);
+      console.log(`[HttpUtils] Loaded ${splitUrls.length} URL(s) from environment variable: ${splitUrls.join(', ')}`);
     }
   }
   
   // Fallback URLs hinzufügen
   if (fallbacks && fallbacks.length > 0) {
     urls.push(...fallbacks);
-    console.log(`[HttpUtils] Added ${fallbacks.length} fallback URL(s)`);
+    console.log(`[HttpUtils] Added ${fallbacks.length} fallback URL(s): ${fallbacks.join(', ')}`);
   }
   
   // Deduplizierung
   const uniqueUrls = [...new Set(urls)];
   
   if (uniqueUrls.length === 0) {
-    console.warn('[HttpUtils] No service URLs configured!');
+    console.warn('[HttpUtils] ⚠️ WARNING: No service URLs configured!');
   } else {
-    console.log(`[HttpUtils] Total unique URLs: ${uniqueUrls.length} - ${uniqueUrls.join(', ')}`);
+    console.log(`[HttpUtils] Total unique URLs configured: ${uniqueUrls.length}`);
   }
   
   return uniqueUrls;

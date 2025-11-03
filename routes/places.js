@@ -37,7 +37,8 @@ const geocodeAddress = async (address) => {
       console.log(`[Geocoder] Attempt ${attemptCount}/${geocoderBaseUrls.length} - Requesting: ${url.toString()}`);
       const startTime = Date.now();
 
-      const response = await fetchWithTimeout(url, { timeout: 10_000 });
+      // Erhöhtes Timeout für Geocoding auf 30 Sekunden
+      const response = await fetchWithTimeout(url, { timeout: 30_000 });
       const responseTime = Date.now() - startTime;
 
       console.log(`[Geocoder] Response received from ${geocoderBaseUrl} in ${responseTime}ms - Status: ${response.status}`);
@@ -72,8 +73,6 @@ const geocodeAddress = async (address) => {
 
       if (!feature?.geometry?.coordinates) {
         console.warn(`[Geocoder] No valid coordinates found in response for "${trimmed}"`);
-        // Dies ist kein Fehler - die Adresse wurde einfach nicht gefunden
-        // Wir geben null zurück, aber setzen keinen lastError
         return null;
       }
 
@@ -118,7 +117,12 @@ const geocodeAddress = async (address) => {
         console.error(`[Geocoder] ✗ DNS lookup failed for ${geocoderBaseUrl} - Address: "${trimmed}"`);
       } else {
         console.error(`[Geocoder] ✗ Request failed for ${geocoderBaseUrl} after ${responseTime}ms - Error: ${error.message} - Address: "${trimmed}"`);
-        console.error(`[Geocoder] Error stack:`, error.stack);
+        console.error(`[Geocoder] Error details:`, {
+          name: error.name,
+          code: error.code,
+          cause: error.cause,
+          stack: error.stack?.split('\n').slice(0, 3).join('\n')
+        });
       }
     }
   }
@@ -560,15 +564,19 @@ router.get('/api/driving-distance', async (req, res) => {
   const { from, to } = req.query;
   const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-  console.log(`[DrivingDistance:${requestId}] New request - from: "${from}", to: "${to}"`);
+  console.log(`[DrivingDistance:${requestId}] ========== NEW REQUEST ==========`);
+  console.log(`[DrivingDistance:${requestId}] From: "${from}"`);
+  console.log(`[DrivingDistance:${requestId}] To: "${to}"`);
 
   if (!from || !to) {
     console.warn(`[DrivingDistance:${requestId}] Missing parameters`);
     return res.status(400).json({ message: 'Query parameters "from" and "to" are required.' });
   }
 
+  const overallStartTime = Date.now();
+
   try {
-    console.log(`[DrivingDistance:${requestId}] Resolving locations...`);
+    console.log(`[DrivingDistance:${requestId}] Step 1: Resolving locations...`);
     const startResolve = Date.now();
     
     const [fromPlace, toPlace] = await Promise.all([
@@ -577,15 +585,24 @@ router.get('/api/driving-distance', async (req, res) => {
     ]);
 
     const resolveTime = Date.now() - startResolve;
-    console.log(`[DrivingDistance:${requestId}] Location resolution completed in ${resolveTime}ms`);
+    console.log(`[DrivingDistance:${requestId}] Step 1 completed in ${resolveTime}ms`);
 
     if (!fromPlace || !toPlace) {
       console.warn(`[DrivingDistance:${requestId}] Location resolution failed - fromPlace: ${!!fromPlace}, toPlace: ${!!toPlace}`);
-      return res.status(404).json({ message: 'One or both places could not be found.' });
+      return res.status(404).json({ 
+        message: 'One or both places could not be found.',
+        details: {
+          from: fromPlace ? 'found' : 'not found',
+          to: toPlace ? 'found' : 'not found'
+        }
+      });
     }
 
-    console.log(`[DrivingDistance:${requestId}] Resolved locations - From: [${fromPlace.lat}, ${fromPlace.lon}], To: [${toPlace.lat}, ${toPlace.lon}]`);
+    console.log(`[DrivingDistance:${requestId}] Resolved locations:`);
+    console.log(`[DrivingDistance:${requestId}]   From: [${fromPlace.lat}, ${fromPlace.lon}] (${fromPlace.type})`);
+    console.log(`[DrivingDistance:${requestId}]   To: [${toPlace.lat}, ${toPlace.lon}] (${toPlace.type})`);
 
+    console.log(`[DrivingDistance:${requestId}] Step 2: Calling OSRM routing service...`);
     const osrmBaseUrls = buildServiceBaseUrls(process.env.OSRM_BASE_URL, [
       'http://osrm:5000',
       'http://localhost:5000',
@@ -635,6 +652,9 @@ router.get('/api/driving-distance', async (req, res) => {
 
         console.log(`[DrivingDistance:${requestId}] ✓ Successfully calculated route via ${osrmBaseUrl} - Distance: ${distanceKm.toFixed(2)}km, Duration: ${durationMinutes.toFixed(1)}min, Response time: ${responseTime}ms`);
 
+        const overallTime = Date.now() - overallStartTime;
+        console.log(`[DrivingDistance:${requestId}] Overall processing time: ${overallTime}ms`);
+
         return res.json({
           from: formatLocationResponse(fromPlace, from),
           to: formatLocationResponse(toPlace, to),
@@ -666,6 +686,9 @@ router.get('/api/driving-distance', async (req, res) => {
       }
     }
 
+    const overallTime = Date.now() - overallStartTime;
+    console.log(`[DrivingDistance:${requestId}] Overall processing time: ${overallTime}ms`);
+
     if (lastError) {
       console.error(`[DrivingDistance:${requestId}] ✗✗✗ ALL OSRM ENDPOINTS FAILED - Last error: ${lastError.message}`);
       return res.status(502).json({ message: lastError.message || 'Routing backend error' });
@@ -674,6 +697,9 @@ router.get('/api/driving-distance', async (req, res) => {
     console.error(`[DrivingDistance:${requestId}] ✗✗✗ No OSRM endpoints available`);
     return res.status(502).json({ message: 'Routing backend error' });
   } catch (error) {
+    const overallTime = Date.now() - overallStartTime;
+    console.log(`[DrivingDistance:${requestId}] Overall processing time: ${overallTime}ms`);
+    
     if (error.name === 'AbortError') {
       console.error(`[DrivingDistance:${requestId}] ✗ Request timeout - Error: ${error.message}`);
       return res.status(502).json({ message: 'Routing backend timeout' });
