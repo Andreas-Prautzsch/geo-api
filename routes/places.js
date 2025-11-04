@@ -1,9 +1,9 @@
 const express = require('express');
-const { URL } = require('url');
 const { Op, Sequelize } = require('sequelize');
-const Place = require('../models/place'); // Assuming you have a Place model defined
+const { URL } = require('url');
 const { fetchWithTimeout, buildServiceBaseUrls, ensureTrailingSlash, toPositiveInt } = require('../helper/httpUtils');
-require('dotenv').config(); // Load environment variables from .env file
+const Place = require('../models/place');
+require('dotenv').config();
 
 const router = express.Router();
 
@@ -241,6 +241,20 @@ const formatLocationResponse = (location, fallbackLabel) => {
   };
 };
 
+// Wrapper für DB-Queries mit Timeout und Error Handling
+const safeDbQuery = async (queryFn, errorContext) => {
+  const timeout = new Promise((_, reject) => 
+    setTimeout(() => reject(new Error('Database query timeout')), 10000)
+  );
+  
+  try {
+    return await Promise.race([queryFn(), timeout]);
+  } catch (error) {
+    console.error(`[DB Error] ${errorContext}:`, error.message);
+    throw error;
+  }
+};
+
 /**
  * @swagger
  * tags:
@@ -284,33 +298,48 @@ router.get('/api/places/:zipcode/:radius', async (req, res) => {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   try {
-      const place = await Place.findOne({ where: { zipcode } });
+    const place = await safeDbQuery(
+      () => Place.findOne({ 
+        where: { zipcode },
+        raw: true,  // Wichtig: verhindert Sequelize Overhead
+      }),
+      `findOne zipcode=${zipcode}`
+    );
 
-      if (!place) {
-          return res.status(404).send('Place not found');
-      }
+    if (!place) {
+      return res.status(404).json({ message: 'Place not found' });
+    }
 
-      const { lat, lon } = place;
+    const { lat, lon } = place;
 
-      const places = await Place.findAll({
-          attributes: [
-              'name', 
-              'zipcode', 
-              [Sequelize.literal(`(6371 * acos(cos(radians(${lat})) * cos(radians(lat)) * cos(radians(lon) - radians(${lon})) + sin(radians(${lat})) * sin(radians(lat))))`), 'distance']
-          ],
-          where: Sequelize.where(
-              Sequelize.literal(`(6371 * acos(cos(radians(${lat})) * cos(radians(lat)) * cos(radians(lon) - radians(${lon})) + sin(radians(${lat})) * sin(radians(lat))))`),
-              '<',
-              radius
-          ),
-          order: Sequelize.literal('distance')
-      });
+    const places = await safeDbQuery(
+      () => Place.findAll({
+        attributes: [
+          'name', 
+          'zipcode', 
+          [Sequelize.literal(`(6371 * acos(cos(radians(${lat})) * cos(radians(lat)) * cos(radians(lon) - radians(${lon})) + sin(radians(${lat})) * sin(radians(lat))))`), 'distance']
+        ],
+        where: Sequelize.where(
+          Sequelize.literal(`(6371 * acos(cos(radians(${lat})) * cos(radians(lat)) * cos(radians(lon) - radians(${lon})) + sin(radians(${lat})) * sin(radians(lat))))`),
+          '<',
+          radius
+        ),
+        order: Sequelize.literal('distance'),
+        raw: true,  // Wichtig!
+      }),
+      `findAll radius query`
+    );
 
-      res.setHeader('Content-Type', 'application/json');
-      res.json(places);
+    res.json(places);
   } catch (error) {
-      console.error(error);
-      res.status(500).send('Internal Server Error');
+    console.error('[Route Error] /api/places/:zipcode/:radius:', error);
+    
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        error: 'Internal Server Error',
+        message: error.message 
+      });
+    }
   }
 });
 
@@ -338,29 +367,43 @@ router.get('/api/search/:query', async (req, res) => {
   const { query } = req.params;
 
   try {
-      let whereClause;
+    let whereClause;
 
-      if (/\d+\s+.+/.test(query)) {
-          const [zipcode, ...nameParts] = query.split(' ');
-          const name = nameParts.join(' ');
-          whereClause = {
-              zipcode,
-              name: { [Op.like]: `%${name}%` }
-          };
-      } else {
-          whereClause = {
-              [Op.or]: [
-                  { name: { [Op.like]: `%${query}%` } },
-                  { zipcode: { [Op.like]: `%${query}%` } }
-              ]
-          };
-      }
+    if (/\d+\s+.+/.test(query)) {
+      const [zipcode, ...nameParts] = query.split(' ');
+      const name = nameParts.join(' ');
+      whereClause = {
+        zipcode,
+        name: { [Op.like]: `%${name}%` }
+      };
+    } else {
+      whereClause = {
+        [Op.or]: [
+          { name: { [Op.like]: `%${query}%` } },
+          { zipcode: { [Op.like]: `%${query}%` } }
+        ]
+      };
+    }
 
-      const results = await Place.findAll({ where: whereClause });
-      res.json(results);
+    const results = await safeDbQuery(
+      () => Place.findAll({ 
+        where: whereClause,
+        limit: 100,  // Limit hinzufügen!
+        raw: true,
+      }),
+      `search query=${query}`
+    );
+    
+    res.json(results);
   } catch (error) {
-      console.error(error);
-      res.status(500).send('Internal Server Error');
+    console.error('[Route Error] /api/search/:query:', error);
+    
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        error: 'Internal Server Error',
+        message: error.message 
+      });
+    }
   }
 });
 
@@ -396,21 +439,31 @@ router.get('/api/placeid/:zipcode/:city', async (req, res) => {
   const { zipcode, city } = req.params;
 
   try {
-      const result = await Place.findOne({
-          where: {
-              zipcode,
-              name: decodeURIComponent(city)
-          }
-      });
+    const result = await safeDbQuery(
+      () => Place.findOne({
+        where: {
+          zipcode,
+          name: decodeURIComponent(city)
+        },
+        raw: true,
+      }),
+      `placeid zipcode=${zipcode} city=${city}`
+    );
 
-      if (!result) {
-          return res.status(404).send('Place not found');
-      }
+    if (!result) {
+      return res.status(404).json({ message: 'Place not found' });
+    }
 
-      res.json(result);
+    res.json(result);
   } catch (error) {
-      console.error(error);
-      res.status(500).send('Internal Server Error');
+    console.error('[Route Error] /api/placeid/:zipcode/:city:', error);
+    
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        error: 'Internal Server Error',
+        message: error.message 
+      });
+    }
   }
 });
 
@@ -440,16 +493,25 @@ router.get('/api/place/:id', async (req, res) => {
   const { id } = req.params;
 
   try {
-      const place = await Place.findByPk(id);
+    const place = await safeDbQuery(
+      () => Place.findByPk(id, { raw: true }),
+      `place id=${id}`
+    );
 
-      if (!place) {
-          return res.status(404).send('Place not found');
-      }
+    if (!place) {
+      return res.status(404).json({ message: 'Place not found' });
+    }
 
-      res.json(place);
+    res.json(place);
   } catch (error) {
-      console.error(error);
-      res.status(500).send('Internal Server Error');
+    console.error('[Route Error] /api/place/:id:', error);
+    
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        error: 'Internal Server Error',
+        message: error.message 
+      });
+    }
   }
 });
 
@@ -493,38 +555,44 @@ router.get('/api/distance', async (req, res) => {
   const toRadians = (value) => (value * Math.PI) / 180;
 
   try {
-      const [fromPlace, toPlace] = await Promise.all([
-        resolveLocation(from),
-        resolveLocation(to),
-      ]);
+    const [fromPlace, toPlace] = await Promise.all([
+      resolveLocation(from),
+      resolveLocation(to),
+    ]);
 
-      if (!fromPlace || !toPlace) {
-          return res.status(404).json({ message: 'One or both places could not be found.' });
-      }
+    if (!fromPlace || !toPlace) {
+      return res.status(404).json({ message: 'One or both places could not be found.' });
+    }
 
-      const { lat: lat1, lon: lon1 } = fromPlace;
-      const { lat: lat2, lon: lon2 } = toPlace;
+    const { lat: lat1, lon: lon1 } = fromPlace;
+    const { lat: lat2, lon: lon2 } = toPlace;
 
-      const earthRadiusKm = 6371;
-      const dLat = toRadians(lat2 - lat1);
-      const dLon = toRadians(lon2 - lon1);
+    const earthRadiusKm = 6371;
+    const dLat = toRadians(lat2 - lat1);
+    const dLon = toRadians(lon2 - lon1);
 
-      const a =
-          Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-          Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
-          Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
 
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      const distance = earthRadiusKm * c;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = earthRadiusKm * c;
 
-      res.json({
-          from: formatLocationResponse(fromPlace, from),
-          to: formatLocationResponse(toPlace, to),
-          distanceKm: Number(distance.toFixed(2))
-      });
+    res.json({
+      from: formatLocationResponse(fromPlace, from),
+      to: formatLocationResponse(toPlace, to),
+      distanceKm: Number(distance.toFixed(2))
+  });
   } catch (error) {
-      console.error(error);
-      res.status(500).send('Internal Server Error');
+    console.error('[Route Error] /api/distance:', error);
+    
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        error: 'Internal Server Error',
+        message: error.message 
+      });
+    }
   }
 });
 
